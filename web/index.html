@@ -1,0 +1,1175 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Gateway Management</title>
+    <style id="theme-style">
+        @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+        
+        :root {
+            --bg-primary: #0a0a0a;
+            --bg-secondary: #0d0d0d;
+            --bg-card: #050505;
+            --border-color: #00ff00;
+            --text-primary: #00ff00;
+            --text-secondary: #00cc00;
+            --accent: #00ff00;
+            --danger: #ff0000;
+            --warning: #ffaa00;
+            --info: #00aaff;
+        }
+        
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            font-family: 'Courier New', monospace;
+            background: var(--bg-primary);
+            min-height: 100vh;
+            color: var(--text-primary);
+            padding: 20px;
+            transition: all 0.3s ease;
+        }
+        
+        .container { max-width: 1200px; margin: 0 auto; }
+        
+        header {
+            text-align: center;
+            padding: 15px 0;
+            border-bottom: 2px solid var(--border-color);
+            margin-bottom: 15px;
+            position: relative;
+        }
+        
+        header h1 {
+            font-family: 'Press Start 2P', cursive;
+            font-size: 0.9em;
+            text-shadow: 2px 2px rgba(0,255,0,0.3);
+            line-height: 1.8;
+        }
+        
+        .header-actions {
+            position: absolute;
+            right: 0;
+            top: 50%;
+            transform: translateY(-50%);
+            display: flex;
+            gap: 8px;
+        }
+        
+        .pixel-box {
+            border: 3px solid var(--border-color);
+            background: var(--bg-secondary);
+            padding: 15px;
+            margin-bottom: 15px;
+            position: relative;
+        }
+        
+        .pixel-title {
+            font-family: 'Press Start 2P', cursive;
+            font-size: 0.55em;
+            margin-bottom: 12px;
+            padding-bottom: 8px;
+            border-bottom: 1px dashed var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .tabs {
+            display: flex;
+            gap: 6px;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+        }
+        
+        .tab {
+            font-family: 'Press Start 2P', cursive;
+            font-size: 0.45em;
+            padding: 8px 12px;
+            background: var(--bg-secondary);
+            border: 2px solid var(--border-color);
+            color: var(--text-primary);
+            cursor: pointer;
+            transition: all 0.1s;
+        }
+        
+        .tab:hover { background: rgba(0,255,0,0.1); }
+        .tab.active { background: var(--accent); color: #000; }
+        
+        .panel { display: none; }
+        .panel.active { display: block; }
+        
+        .btn {
+            font-family: 'Press Start 2P', cursive;
+            font-size: 0.4em;
+            padding: 6px 10px;
+            border: 2px solid var(--border-color);
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            cursor: pointer;
+            transition: all 0.1s;
+        }
+        
+        .btn:hover { background: rgba(0,255,0,0.1); }
+        .btn-primary { background: var(--accent); color: #000; }
+        .btn-primary:hover { background: #00cc00; }
+        .btn-danger { border-color: var(--danger); color: var(--danger); }
+        .btn-danger:hover { background: rgba(255,0,0,0.1); }
+        .btn-warning { border-color: var(--warning); color: var(--warning); }
+        .btn-warning:hover { background: rgba(255,170,0,0.1); }
+        .btn-small { font-size: 0.35em; padding: 4px 6px; }
+        
+        .form-group { margin-bottom: 10px; }
+        .form-group label { display: block; margin-bottom: 4px; font-size: 0.6em; color: var(--text-secondary); }
+        .form-group input, .form-group select, .form-group textarea {
+            width: 100%;
+            padding: 8px;
+            background: #000;
+            border: 2px solid var(--border-color);
+            color: var(--text-primary);
+            font-family: 'Courier New', monospace;
+            font-size: 0.8em;
+        }
+        .form-group input:focus, .form-group select:focus, .form-group textarea:focus { 
+            outline: none; 
+            box-shadow: 0 0 10px rgba(0,255,0,0.3); 
+        }
+        .form-row { display: flex; gap: 10px; }
+        .form-row .form-group { flex: 1; }
+        
+        .card {
+            border: 2px solid var(--border-color);
+            padding: 12px;
+            margin-bottom: 10px;
+            background: var(--bg-card);
+            position: relative;
+        }
+        
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        
+        .card-title { font-family: 'Press Start 2P', cursive; font-size: 0.5em; }
+        .card-info { font-size: 0.7em; color: var(--text-secondary); margin: 3px 0; }
+        .card-info span { color: var(--text-primary); }
+        .card-actions { display: flex; gap: 5px; }
+        
+        .status-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 10px;
+        }
+        
+        .status-item {
+            border: 2px solid var(--border-color);
+            padding: 12px;
+            text-align: center;
+            background: var(--bg-card);
+        }
+        
+        .status-icon { font-size: 1.3em; margin-bottom: 6px; }
+        .status-label { font-size: 0.55em; color: var(--text-secondary); margin-bottom: 4px; }
+        .status-value { font-family: 'Press Start 2P', cursive; font-size: 0.4em; }
+        .status-online { color: #00ff00; }
+        .status-offline { color: #ff0000; }
+        .status-warning { color: #ffaa00; }
+        
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: rgba(0,0,0,0.9);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+        .modal.active { display: flex; }
+        
+        .modal-content {
+            background: var(--bg-primary);
+            border: 3px solid var(--border-color);
+            padding: 20px;
+            max-width: 500px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 1px dashed var(--border-color);
+        }
+        
+        .modal-title { font-family: 'Press Start 2P', cursive; font-size: 0.5em; }
+        .modal-close { background: none; border: none; color: var(--text-primary); font-size: 1.2em; cursor: pointer; }
+        
+        .toast {
+            position: fixed;
+            bottom: 20px; right: 20px;
+            padding: 10px 14px;
+            border: 2px solid var(--border-color);
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            font-family: 'Press Start 2P', cursive;
+            font-size: 0.4em;
+            z-index: 2000;
+            animation: slideIn 0.3s ease;
+        }
+        .toast.error { border-color: var(--danger); color: var(--danger); }
+        .toast.success { border-color: #00ff00; color: #00ff00; }
+        
+        @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+        
+        .empty-state { text-align: center; padding: 25px; color: rgba(0,255,0,0.3); }
+        .empty-state-icon { font-size: 1.8em; margin-bottom: 8px; }
+        
+        .loading { display: inline-block; width: 8px; height: 8px; border: 2px solid rgba(0,255,0,0.2); border-top-color: var(--accent); animation: spin 1s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        
+        .badge { display: inline-block; padding: 2px 5px; background: var(--accent); color: #000; font-size: 0.35em; margin-left: 6px; }
+        .badge-worker { background: var(--info); }
+        .badge-manager { background: #ff00ff; }
+        
+        .assignment-card { display: flex; justify-content: space-between; align-items: center; padding: 10px; border: 1px solid rgba(0,255,0,0.3); margin-bottom: 8px; }
+        .assignment-info { flex: 1; }
+        .assignment-name { font-weight: bold; color: var(--text-primary); }
+        .assignment-model { font-size: 0.75em; color: var(--text-secondary); }
+        
+        select option { background: #000; color: var(--text-primary); }
+        
+        /* Theme Switcher */
+        .theme-switcher {
+            display: flex;
+            gap: 5px;
+            margin-left: 15px;
+        }
+        
+        .theme-btn {
+            width: 20px;
+            height: 20px;
+            border: 2px solid var(--border-color);
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .theme-btn:hover { transform: scale(1.2); }
+        .theme-btn.active { box-shadow: 0 0 10px var(--accent); }
+        .theme-btn.pixel { background: linear-gradient(45deg, #00ff00, #003300); }
+        .theme-btn.cyber { background: linear-gradient(45deg, #ff00ff, #00ffff); }
+        .theme-btn.office { background: linear-gradient(45deg, #8B4513, #D2691E); }
+        
+        /* Worker Animation */
+        .worker-avatar {
+            width: 40px;
+            height: 40px;
+            display: inline-block;
+            position: relative;
+            margin-right: 10px;
+        }
+        
+        .pixel-person {
+            width: 100%;
+            height: 100%;
+            image-rendering: pixelated;
+        }
+        
+        .worker-status-indicator {
+            position: absolute;
+            bottom: 0;
+            right: 0;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            animation: pulse 1.5s infinite;
+        }
+        
+        .worker-status-indicator.busy { background: #ffaa00; }
+        .worker-status-indicator.idle { background: #00ff00; }
+        .worker-status-indicator.sleeping { background: #6666ff; animation: pulse-slow 3s infinite; }
+        .worker-status-indicator.offline { background: #ff0000; animation: none; }
+        
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.3); opacity: 0.7; }
+        }
+        
+        @keyframes pulse-slow {
+            0%, 100% { transform: scale(1); opacity: 0.5; }
+            50% { transform: scale(1.2); opacity: 0.8; }
+        }
+        
+        /* Monitor Panel */
+        .monitor-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 10px;
+        }
+        
+        .monitor-card {
+            border: 2px solid var(--border-color);
+            padding: 12px;
+            background: var(--bg-card);
+        }
+        
+        .monitor-title {
+            font-family: 'Press Start 2P', cursive;
+            font-size: 0.4em;
+            margin-bottom: 8px;
+            color: var(--text-secondary);
+        }
+        
+        .monitor-value {
+            font-family: 'Press Start 2P', cursive;
+            font-size: 0.7em;
+            color: var(--text-primary);
+        }
+        
+        .monitor-bar {
+            height: 8px;
+            background: rgba(0,255,0,0.2);
+            margin-top: 8px;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .monitor-bar-fill {
+            height: 100%;
+            background: var(--accent);
+            transition: width 0.5s ease;
+        }
+        
+        /* Backup Section */
+        .backup-info {
+            font-size: 0.65em;
+            color: var(--text-secondary);
+            margin-top: 8px;
+            padding: 8px;
+            border: 1px dashed rgba(0,255,0,0.3);
+        }
+        
+        /* Two Column Layout */
+        .two-columns {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+        }
+        
+        @media (max-width: 768px) {
+            .two-columns { grid-template-columns: 1fr; }
+        }
+        
+        /* Status on Home */
+        .home-status {
+            margin-top: 15px;
+            border-top: 2px dashed var(--border-color);
+            padding-top: 15px;
+        }
+        
+        .home-status-title {
+            font-family: 'Press Start 2P', cursive;
+            font-size: 0.5em;
+            margin-bottom: 10px;
+            color: var(--text-secondary);
+        }
+        
+        /* Service Source Config */
+        .service-source-config {
+            background: rgba(0,255,0,0.05);
+            padding: 10px;
+            border: 1px dashed var(--border-color);
+            margin-top: 10px;
+        }
+        
+        .service-source-config .form-group {
+            margin-bottom: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>AI GATEWAY MANAGEMENT</h1>
+            <div class="header-actions">
+                <div class="theme-switcher">
+                    <div class="theme-btn pixel active" onclick="setTheme('pixel')" title="Pixel"></div>
+                    <div class="theme-btn cyber" onclick="setTheme('cyber')" title="Cyber"></div>
+                    <div class="theme-btn office" onclick="setTheme('office')" title="Office"></div>
+                </div>
+                <button class="btn btn-warning" onclick="showResetModal()">RESET</button>
+            </div>
+        </header>
+
+        <div class="tabs">
+            <div class="tab active" data-tab="home">HOME</div>
+            <div class="tab" data-tab="providers">PROVIDERS</div>
+            <div class="tab" data-tab="assignment">ASSIGNMENT</div>
+            <div class="tab" data-tab="monitor">MONITOR</div>
+        </div>
+
+        <!-- Home Panel -->
+        <div class="panel active" id="home-panel">
+            <div class="two-columns">
+                <div class="pixel-box">
+                    <div class="pixel-title">
+                        <span>QUICK ACTIONS</span>
+                    </div>
+                    <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                        <button class="btn btn-primary" onclick="showCreateProviderModal()">+ ADD PROVIDER</button>
+                        <button class="btn" onclick="showSetModelModal('manager')">SET MANAGER MODEL</button>
+                        <button class="btn" onclick="refreshAll()">REFRESH ALL</button>
+                    </div>
+                    <div class="backup-info" id="backup-info">
+                        Last backup: <span id="last-backup-time">Never</span>
+                        <button class="btn btn-small" onclick="createBackup()" style="margin-left: 10px;">BACKUP NOW</button>
+                    </div>
+                </div>
+                
+                <div class="pixel-box">
+                    <div class="pixel-title">
+                        <span>WORKERS STATUS</span>
+                    </div>
+                    <div id="workers-quick-status"></div>
+                </div>
+            </div>
+            
+            <!-- Status Section on Home -->
+            <div class="home-status">
+                <div class="home-status-title">SYSTEM STATUS</div>
+                <div class="status-grid" id="home-status-grid">
+                    <div class="status-item">
+                        <div class="status-icon">📡</div>
+                        <div class="status-label">HIGRESS</div>
+                        <div class="status-value" id="status-higress">CHECKING...</div>
+                    </div>
+                    <div class="status-item">
+                        <div class="status-icon">🤖</div>
+                        <div class="status-label">MANAGER</div>
+                        <div class="status-value" id="status-manager">CHECKING...</div>
+                    </div>
+                    <div class="status-item">
+                        <div class="status-icon">👥</div>
+                        <div class="status-label">WORKERS</div>
+                        <div class="status-value" id="status-workers">0</div>
+                    </div>
+                    <div class="status-item">
+                        <div class="status-icon">📦</div>
+                        <div class="status-label">PROVIDERS</div>
+                        <div class="status-value" id="status-providers">0</div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Monitor Preview -->
+            <div class="pixel-box" style="margin-top: 15px;">
+                <div class="pixel-title">
+                    <span>MONITOR PREVIEW</span>
+                    <button class="btn btn-small" onclick="switchTab('monitor')">VIEW ALL</button>
+                </div>
+                <div class="monitor-grid" id="monitor-preview"></div>
+            </div>
+        </div>
+
+        <!-- Providers Panel -->
+        <div class="panel" id="providers-panel">
+            <div class="pixel-box">
+                <div class="pixel-title">
+                    <span>AI PROVIDERS</span>
+                    <button class="btn btn-primary" onclick="showCreateProviderModal()">+ ADD</button>
+                </div>
+                <div id="providers-list"></div>
+            </div>
+        </div>
+
+        <!-- Assignment Panel -->
+        <div class="panel" id="assignment-panel">
+            <div class="pixel-box">
+                <div class="pixel-title">MODEL ASSIGNMENT</div>
+                
+                <div style="margin-bottom: 15px;">
+                    <div style="font-size:0.55em; color:var(--text-secondary); margin-bottom:8px;">MANAGER</div>
+                    <div class="assignment-card" id="manager-assignment">
+                        <div class="assignment-info">
+                            <div class="assignment-name">manager <span class="badge badge-manager">DEFAULT</span></div>
+                            <div class="assignment-model" id="manager-model-info">Loading...</div>
+                        </div>
+                        <button class="btn btn-small" onclick="showSetModelModal('manager')">SET MODEL</button>
+                    </div>
+                </div>
+                
+                <div>
+                    <div style="font-size:0.55em; color:var(--text-secondary); margin-bottom:8px;">WORKERS</div>
+                    <div id="workers-assignment"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Monitor Panel -->
+        <div class="panel" id="monitor-panel">
+            <div class="pixel-box">
+                <div class="pixel-title">
+                    <span>PILOT-AGENT MONITOR</span>
+                    <button class="btn" onclick="refreshMonitor()">REFRESH</button>
+                </div>
+                <div class="monitor-grid" id="monitor-content"></div>
+            </div>
+            
+            <div class="pixel-box">
+                <div class="pixel-title">WORKER DETAILS</div>
+                <div id="worker-details"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Create/Edit Provider Modal -->
+    <div class="modal" id="provider-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="modal-title" id="provider-modal-title">ADD AI PROVIDER</div>
+                <button class="modal-close" onclick="closeModal('provider-modal')">&times;</button>
+            </div>
+            <form id="provider-form">
+                <input type="hidden" id="provider-edit-mode" value="create">
+                <input type="hidden" id="provider-original-name" value="">
+                
+                <div class="form-group">
+                    <label>PROVIDER TYPE</label>
+                    <select id="provider-type" onchange="updateProviderForm()">
+                        <option value="qwen">Qwen (Tongyi)</option>
+                        <option value="deepseek">DeepSeek</option>
+                        <option value="moonshot">Moonshot (Kimi)</option>
+                        <option value="zhipu">Zhipu AI (GLM)</option>
+                        <option value="minimax">MiniMax</option>
+                        <option value="openai">OpenAI</option>
+                        <option value="custom">Custom</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>PROVIDER NAME</label>
+                    <input type="text" id="provider-name" placeholder="e.g., qwen, deepseek">
+                </div>
+                <div class="form-group">
+                    <label>API KEY</label>
+                    <input type="password" id="provider-apikey" placeholder="Enter API Key">
+                </div>
+                <div class="form-group" id="custom-url-group" style="display:none;">
+                    <label>API URL (HTTPS)</label>
+                    <input type="text" id="provider-custom-url" placeholder="https://api.example.com/v1">
+                </div>
+                
+                <div class="service-source-config" id="service-source-config">
+                    <div class="form-group">
+                        <label>SERVICE DOMAIN (auto-generated)</label>
+                        <input type="text" id="service-domain" readonly placeholder="provider-name.dns">
+                    </div>
+                </div>
+                
+                <button type="submit" class="btn btn-primary" style="width:100%;margin-top:10px;">SAVE PROVIDER</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Set Model Modal -->
+    <div class="modal" id="model-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="modal-title" id="model-modal-title">SET MODEL</div>
+                <button class="modal-close" onclick="closeModal('model-modal')">&times;</button>
+            </div>
+            <form id="model-form">
+                <input type="hidden" id="model-target">
+                <div class="form-group">
+                    <label>PROVIDER</label>
+                    <select id="model-provider" onchange="updateModelSelect()"></select>
+                </div>
+                <div class="form-group">
+                    <label>MODEL ID</label>
+                    <input type="text" id="model-id" placeholder="e.g., qwen3.5-plus, deepseek-chat">
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>CONTEXT WINDOW</label>
+                        <input type="number" id="model-context" value="200000">
+                    </div>
+                    <div class="form-group">
+                        <label>MAX TOKENS</label>
+                        <input type="number" id="model-max-tokens" value="64000">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label><input type="checkbox" id="model-reasoning" checked> Enable Reasoning</label>
+                </div>
+                <button type="submit" class="btn btn-primary" style="width:100%">SAVE & APPLY</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Reset Modal -->
+    <div class="modal" id="reset-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="modal-title">RESET CONFIGURATION</div>
+                <button class="modal-close" onclick="closeModal('reset-modal')">&times;</button>
+            </div>
+            <div style="text-align: center; padding: 20px 0;">
+                <p style="font-size: 0.7em; margin-bottom: 15px;">This will restore all configurations from the last backup.</p>
+                <p style="font-size: 0.6em; color: var(--text-secondary); margin-bottom: 20px;">Last backup: <span id="reset-backup-time">Never</span></p>
+                <div style="display: flex; gap: 10px; justify-content: center;">
+                    <button class="btn btn-danger" onclick="performReset()">CONFIRM RESET</button>
+                    <button class="btn" onclick="closeModal('reset-modal')">CANCEL</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = window.location.origin;
+        let providers = [];
+        let workers = [];
+        let managerModel = {};
+        let backupData = null;
+        let currentTheme = 'pixel';
+
+        const themes = {
+            pixel: {
+                '--bg-primary': '#0a0a0a',
+                '--bg-secondary': '#0d0d0d',
+                '--bg-card': '#050505',
+                '--border-color': '#00ff00',
+                '--text-primary': '#00ff00',
+                '--text-secondary': '#00cc00',
+                '--accent': '#00ff00'
+            },
+            cyber: {
+                '--bg-primary': '#0a001a',
+                '--bg-secondary': '#150030',
+                '--bg-card': '#0d0020',
+                '--border-color': '#ff00ff',
+                '--text-primary': '#00ffff',
+                '--text-secondary': '#ff00ff',
+                '--accent': '#00ffff'
+            },
+            office: {
+                '--bg-primary': '#2d1b0e',
+                '--bg-secondary': '#3d2817',
+                '--bg-card': '#251508',
+                '--border-color': '#D2691E',
+                '--text-primary': '#F4A460',
+                '--text-secondary': '#CD853F',
+                '--accent': '#DEB887'
+            }
+        };
+
+        function setTheme(theme) {
+            currentTheme = theme;
+            const root = document.documentElement;
+            Object.entries(themes[theme]).forEach(([key, value]) => {
+                root.style.setProperty(key, value);
+            });
+            document.querySelectorAll('.theme-btn').forEach(btn => btn.classList.remove('active'));
+            document.querySelector(`.theme-btn.${theme}`).classList.add('active');
+            localStorage.setItem('ai-gateway-theme', theme);
+        }
+
+        function switchTab(tabName) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+            document.querySelector(`.tab[data-tab="${tabName}"]`).classList.add('active');
+            document.getElementById(`${tabName}-panel`).classList.add('active');
+        }
+
+        async function apiCall(method, path, body = null) {
+            const options = {
+                method,
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/json' }
+            };
+            if (body) options.body = JSON.stringify(body);
+            
+            let response = await fetch(`${API_BASE}${path}`, options);
+            
+            if (response.status === 401 || response.status === 403) {
+                const loggedIn = await login();
+                if (loggedIn) {
+                    response = await fetch(`${API_BASE}${path}`, options);
+                }
+            }
+            return response;
+        }
+
+        async function login() {
+            try {
+                const response = await fetch(`${API_BASE}/session/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify({
+                        name: localStorage.getItem('higress_user') || 'admin',
+                        password: localStorage.getItem('higress_pass') || 'admin'
+                    })
+                });
+                return response.ok;
+            } catch (e) { console.error('Login failed:', e); }
+            return false;
+        }
+
+        function showToast(message, type = 'info') {
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            toast.textContent = message;
+            document.body.appendChild(toast);
+            setTimeout(() => toast.remove(), 3000);
+        }
+
+        function closeModal(id) { document.getElementById(id).classList.remove('active'); }
+        function showModal(id) { document.getElementById(id).classList.add('active'); }
+
+        function updateProviderForm() {
+            const type = document.getElementById('provider-type').value;
+            const nameInput = document.getElementById('provider-name');
+            const customUrlGroup = document.getElementById('custom-url-group');
+            
+            const nameMap = { qwen: 'qwen', deepseek: 'deepseek', moonshot: 'moonshot', zhipu: 'zhipu', minimax: 'minimax', openai: 'openai', custom: '' };
+            if (document.getElementById('provider-edit-mode').value === 'create') {
+                nameInput.value = nameMap[type] || '';
+            }
+            customUrlGroup.style.display = ['custom', 'deepseek', 'moonshot', 'zhipu', 'minimax', 'openai'].includes(type) ? 'block' : 'none';
+            
+            updateServiceDomain();
+        }
+
+        function updateServiceDomain() {
+            const name = document.getElementById('provider-name').value || 'provider';
+            document.getElementById('service-domain').value = `${name}.dns`;
+        }
+
+        document.getElementById('provider-name').addEventListener('input', updateServiceDomain);
+
+        function renderProviders() {
+            const container = document.getElementById('providers-list');
+            if (!providers || providers.length === 0) {
+                container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">📦</div><div>NO PROVIDERS</div></div>';
+                return;
+            }
+            
+            container.innerHTML = providers.map(p => `
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title">${p.name.toUpperCase()}</div>
+                        <div class="card-actions">
+                            <button class="btn btn-small" onclick="editProvider('${p.name}')">EDIT</button>
+                            <button class="btn btn-danger btn-small" onclick="deleteProvider('${p.name}')">DEL</button>
+                        </div>
+                    </div>
+                    <div class="card-info">TYPE: <span>${p.type}</span></div>
+                    <div class="card-info">TOKENS: <span>${(p.tokens || []).length} configured</span></div>
+                    <div class="card-info">DOMAIN: <span>${p.name}.dns</span></div>
+                </div>
+            `).join('');
+            
+            document.getElementById('status-providers').textContent = providers.length;
+        }
+
+        async function refreshProviders() {
+            try {
+                const response = await apiCall('GET', '/v1/ai/providers');
+                const data = await response.json();
+                providers = data.data || data || [];
+                renderProviders();
+                updateModelProviderSelect();
+            } catch (e) { showToast('FAILED TO LOAD PROVIDERS', 'error'); }
+        }
+
+        function updateModelProviderSelect() {
+            const select = document.getElementById('model-provider');
+            select.innerHTML = providers.map(p => `<option value="${p.name}">${p.name} (${p.type})</option>`).join('');
+        }
+
+        async function deleteProvider(name) {
+            if (!confirm(`DELETE PROVIDER "${name}"?`)) return;
+            
+            await createBackup();
+            
+            const response = await apiCall('DELETE', `/v1/ai/providers/${name}`);
+            if (response.ok) {
+                showToast('PROVIDER DELETED', 'success');
+                refreshProviders();
+            } else {
+                showToast('DELETE FAILED', 'error');
+            }
+        }
+
+        function showCreateProviderModal() {
+            document.getElementById('provider-form').reset();
+            document.getElementById('provider-edit-mode').value = 'create';
+            document.getElementById('provider-original-name').value = '';
+            document.getElementById('provider-modal-title').textContent = 'ADD AI PROVIDER';
+            updateProviderForm();
+            showModal('provider-modal');
+        }
+
+        function editProvider(name) {
+            const provider = providers.find(p => p.name === name);
+            if (!provider) return;
+            
+            document.getElementById('provider-edit-mode').value = 'edit';
+            document.getElementById('provider-original-name').value = name;
+            document.getElementById('provider-modal-title').textContent = 'EDIT AI PROVIDER';
+            document.getElementById('provider-type').value = provider.type;
+            document.getElementById('provider-name').value = provider.name;
+            document.getElementById('provider-apikey').value = (provider.tokens || [])[0] || '';
+            
+            const customUrl = provider.rawConfigs?.apiUrl || '';
+            document.getElementById('provider-custom-url').value = customUrl;
+            document.getElementById('custom-url-group').style.display = customUrl ? 'block' : 'none';
+            
+            updateServiceDomain();
+            showModal('provider-modal');
+        }
+
+        document.getElementById('provider-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const editMode = document.getElementById('provider-edit-mode').value;
+            const originalName = document.getElementById('provider-original-name').value;
+            const type = document.getElementById('provider-type').value;
+            const name = document.getElementById('provider-name').value;
+            const apiKey = document.getElementById('provider-apikey').value;
+            const customUrl = document.getElementById('provider-custom-url').value;
+            
+            if (!name || !apiKey) {
+                showToast('NAME AND API KEY REQUIRED', 'error');
+                return;
+            }
+            
+            await createBackup();
+            
+            const body = {
+                type: type === 'custom' ? 'openai' : type,
+                name: name,
+                tokens: [apiKey],
+                protocol: 'openai/v1',
+                tokenFailoverConfig: { enabled: false }
+            };
+            
+            if (customUrl) {
+                body.rawConfigs = { apiUrl: customUrl, mergeConsecutiveMessages: true };
+            } else if (type === 'qwen') {
+                body.rawConfigs = { qwenEnableSearch: false, qwenEnableCompatible: true, qwenFileIds: [], mergeConsecutiveMessages: true };
+            } else {
+                body.rawConfigs = { mergeConsecutiveMessages: true };
+            }
+            
+            let response;
+            if (editMode === 'edit' && originalName !== name) {
+                await apiCall('DELETE', `/v1/ai/providers/${originalName}`);
+                response = await apiCall('POST', '/v1/ai/providers', body);
+            } else if (editMode === 'edit') {
+                response = await apiCall('PUT', `/v1/ai/providers/${name}`, body);
+            } else {
+                response = await apiCall('POST', '/v1/ai/providers', body);
+            }
+            
+            if (response.ok || response.status === 409) {
+                showToast(editMode === 'edit' ? 'PROVIDER UPDATED' : 'PROVIDER CREATED', 'success');
+                closeModal('provider-modal');
+                refreshProviders();
+            } else {
+                const err = await response.text();
+                showToast('SAVE FAILED: ' + err.substring(0, 50), 'error');
+            }
+        });
+
+        // Model Assignment
+        function showSetModelModal(target) {
+            document.getElementById('model-target').value = target;
+            document.getElementById('model-modal-title').textContent = target === 'manager' ? 'SET MANAGER MODEL' : `SET WORKER MODEL: ${target}`;
+            updateModelProviderSelect();
+            showModal('model-modal');
+        }
+
+        document.getElementById('model-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const target = document.getElementById('model-target').value;
+            const provider = document.getElementById('model-provider').value;
+            const model = document.getElementById('model-id').value;
+            const context = document.getElementById('model-context').value;
+            const maxTokens = document.getElementById('model-max-tokens').value;
+            const reasoning = document.getElementById('model-reasoning').checked;
+            
+            if (!provider || !model) {
+                showToast('PROVIDER AND MODEL REQUIRED', 'error');
+                return;
+            }
+            
+            await createBackup();
+            
+            const body = {
+                provider,
+                model,
+                contextWindow: parseInt(context),
+                maxTokens: parseInt(maxTokens),
+                reasoning
+            };
+            
+            const path = target === 'manager' ? '/v1/ai/routes/default-ai-route' : `/ni_status/assignment/workers/${target}`;
+            
+            try {
+                let response;
+                if (target === 'manager') {
+                    const routeRes = await apiCall('GET', path);
+                    const routeData = await routeRes.json();
+                    const patched = { ...routeData.data || routeData };
+                    if (patched.upstreams && patched.upstreams[0]) {
+                        patched.upstreams[0].provider = provider;
+                    }
+                    response = await apiCall('PUT', path, patched);
+                    
+                    if (response.ok) {
+                        await apiCall('POST', '/ni_status/reload', { target: 'manager' });
+                    }
+                } else {
+                    response = await apiCall('PUT', path, body);
+                }
+                
+                if (response.ok) {
+                    showToast('MODEL SET & APPLIED', 'success');
+                    closeModal('model-modal');
+                    refreshAssignments();
+                } else {
+                    showToast('SET MODEL FAILED', 'error');
+                }
+            } catch (err) {
+                showToast('ERROR: ' + err.message, 'error');
+            }
+        });
+
+        async function refreshAssignments() {
+            try {
+                const routeRes = await apiCall('GET', '/v1/ai/routes/default-ai-route');
+                const routeData = await routeRes.json();
+                const provider = (routeData.data || routeData).upstreams?.[0]?.provider || 'unknown';
+                
+                document.getElementById('manager-model-info').textContent = `Provider: ${provider}`;
+            } catch (e) {
+                document.getElementById('manager-model-info').textContent = 'Failed to load';
+            }
+            
+            renderWorkersQuickStatus();
+        }
+
+        // Workers
+        async function fetchWorkers() {
+            try {
+                const response = await apiCall('GET', '/v1/consumers');
+                const data = await response.json();
+                const allConsumers = data.data || data || [];
+                workers = allConsumers.filter(c => c.name && c.name.startsWith('worker-'));
+                document.getElementById('status-workers').textContent = workers.length;
+                renderWorkersQuickStatus();
+            } catch (e) {
+                console.error('Failed to fetch workers:', e);
+            }
+        }
+
+        function renderWorkersQuickStatus() {
+            const container = document.getElementById('workers-quick-status');
+            const assignmentContainer = document.getElementById('workers-assignment');
+            
+            if (!workers || workers.length === 0) {
+                container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">👥</div><div>NO WORKERS</div></div>';
+                assignmentContainer.innerHTML = '<div class="empty-state"><div class="empty-state-icon">👥</div><div>NO WORKERS</div></div>';
+                return;
+            }
+            
+            const workerHtml = workers.map(w => {
+                const name = w.name.replace('worker-', '');
+                const status = Math.random() > 0.3 ? 'idle' : (Math.random() > 0.5 ? 'busy' : 'sleeping');
+                return `
+                    <div class="assignment-card">
+                        <div style="display: flex; align-items: center;">
+                            <div class="worker-avatar">
+                                <svg class="pixel-person" viewBox="0 0 16 16">
+                                    <rect x="5" y="1" width="6" height="5" fill="${status === 'busy' ? '#ffaa00' : status === 'sleeping' ? '#6666ff' : '#00ff00'}"/>
+                                    <rect x="4" y="6" width="8" height="6" fill="${status === 'busy' ? '#ffaa00' : status === 'sleeping' ? '#6666ff' : '#00ff00'}"/>
+                                    <rect x="4" y="12" width="3" height="4" fill="${status === 'busy' ? '#ffaa00' : status === 'sleeping' ? '#6666ff' : '#00ff00'}"/>
+                                    <rect x="9" y="12" width="3" height="4" fill="${status === 'busy' ? '#ffaa00' : status === 'sleeping' ? '#6666ff' : '#00ff00'}"/>
+                                </svg>
+                                <div class="worker-status-indicator ${status}"></div>
+                            </div>
+                            <div class="assignment-info">
+                                <div class="assignment-name">${name} <span class="badge badge-worker">WORKER</span></div>
+                                <div class="assignment-model">Status: ${status.toUpperCase()}</div>
+                            </div>
+                        </div>
+                        <button class="btn btn-small" onclick="showSetModelModal('${name}')">SET MODEL</button>
+                    </div>
+                `;
+            }).join('');
+            
+            container.innerHTML = workerHtml;
+            assignmentContainer.innerHTML = workerHtml;
+        }
+
+        // Backup & Reset
+        async function createBackup() {
+            try {
+                const providersData = await apiCall('GET', '/v1/ai/providers');
+                const routesData = await apiCall('GET', '/v1/ai/routes');
+                const consumersData = await apiCall('GET', '/v1/consumers');
+                
+                backupData = {
+                    timestamp: new Date().toISOString(),
+                    providers: await providersData.json(),
+                    routes: await routesData.json(),
+                    consumers: await consumersData.json()
+                };
+                
+                localStorage.setItem('ai-gateway-backup', JSON.stringify(backupData));
+                document.getElementById('last-backup-time').textContent = new Date().toLocaleTimeString();
+                showToast('BACKUP CREATED', 'success');
+            } catch (e) {
+                showToast('BACKUP FAILED', 'error');
+            }
+        }
+
+        function showResetModal() {
+            const backup = localStorage.getItem('ai-gateway-backup');
+            if (backup) {
+                const data = JSON.parse(backup);
+                document.getElementById('reset-backup-time').textContent = new Date(data.timestamp).toLocaleString();
+            }
+            showModal('reset-modal');
+        }
+
+        async function performReset() {
+            const backup = localStorage.getItem('ai-gateway-backup');
+            if (!backup) {
+                showToast('NO BACKUP FOUND', 'error');
+                return;
+            }
+            
+            const data = JSON.parse(backup);
+            
+            try {
+                if (data.providers) {
+                    for (const p of (data.providers.data || data.providers || [])) {
+                        await apiCall('POST', '/v1/ai/providers', p);
+                    }
+                }
+                
+                showToast('CONFIGURATION RESTORED', 'success');
+                closeModal('reset-modal');
+                refreshAll();
+            } catch (e) {
+                showToast('RESET FAILED', 'error');
+            }
+        }
+
+        // Monitor
+        async function refreshMonitor() {
+            const container = document.getElementById('monitor-content');
+            const preview = document.getElementById('monitor-preview');
+            
+            try {
+                const response = await apiCall('GET', '/ni_status/metrics');
+                const data = await response.json();
+                
+                const metrics = [
+                    { title: 'CPU USAGE', value: data.cpu || 'N/A', unit: '%', bar: data.cpu || 0 },
+                    { title: 'MEMORY', value: data.memory || 'N/A', unit: '%', bar: data.memory || 0 },
+                    { title: 'REQUESTS/MIN', value: data.rpm || 0, unit: '', bar: Math.min(data.rpm / 100, 100) },
+                    { title: 'ACTIVE CONN', value: data.connections || 0, unit: '', bar: 0 }
+                ];
+                
+                const html = metrics.map(m => `
+                    <div class="monitor-card">
+                        <div class="monitor-title">${m.title}</div>
+                        <div class="monitor-value">${m.value}${m.unit}</div>
+                        ${m.bar ? `<div class="monitor-bar"><div class="monitor-bar-fill" style="width: ${m.bar}%"></div></div>` : ''}
+                    </div>
+                `).join('');
+                
+                container.innerHTML = html;
+                preview.innerHTML = html;
+            } catch (e) {
+                container.innerHTML = '<div class="empty-state">MONITOR DATA UNAVAILABLE</div>';
+                preview.innerHTML = '<div class="empty-state">N/A</div>';
+            }
+        }
+
+        // Status Check
+        async function checkStatus() {
+            document.getElementById('status-higress').textContent = 'CHECKING...';
+            document.getElementById('status-manager').textContent = 'CHECKING...';
+            
+            try {
+                const higressRes = await apiCall('GET', '/v1/domains');
+                document.getElementById('status-higress').textContent = higressRes.ok ? 'ONLINE' : 'OFFLINE';
+                document.getElementById('status-higress').className = `status-value ${higressRes.ok ? 'status-online' : 'status-offline'}`;
+            } catch (e) {
+                document.getElementById('status-higress').textContent = 'OFFLINE';
+                document.getElementById('status-higress').className = 'status-value status-offline';
+            }
+            
+            try {
+                const managerRes = await fetch('http://127.0.0.1:18888', { method: 'HEAD' });
+                document.getElementById('status-manager').textContent = managerRes.ok ? 'ONLINE' : 'OFFLINE';
+                document.getElementById('status-manager').className = `status-value ${managerRes.ok ? 'status-online' : 'status-offline'}`;
+            } catch (e) {
+                document.getElementById('status-manager').textContent = 'OFFLINE';
+                document.getElementById('status-manager').className = 'status-value status-offline';
+            }
+        }
+
+        // Refresh All
+        async function refreshAll() {
+            await Promise.all([
+                refreshProviders(),
+                fetchWorkers(),
+                refreshAssignments(),
+                checkStatus(),
+                refreshMonitor()
+            ]);
+            showToast('REFRESHED', 'success');
+        }
+
+        // Tab switching
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                const tabName = tab.dataset.tab;
+                switchTab(tabName);
+                
+                if (tabName === 'providers') refreshProviders();
+                if (tabName === 'assignment') { refreshProviders(); refreshAssignments(); }
+                if (tabName === 'monitor') refreshMonitor();
+            });
+        });
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            const savedTheme = localStorage.getItem('ai-gateway-theme') || 'pixel';
+            setTheme(savedTheme);
+            
+            const backup = localStorage.getItem('ai-gateway-backup');
+            if (backup) {
+                const data = JSON.parse(backup);
+                document.getElementById('last-backup-time').textContent = new Date(data.timestamp).toLocaleTimeString();
+            }
+            
+            login().then(() => {
+                refreshAll();
+            });
+        });
+    </script>
+</body>
+</html>
