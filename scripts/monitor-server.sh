@@ -4,14 +4,16 @@
 # Provides REST API endpoints for:
 # - /ni_status/metrics - System metrics (CPU, memory, connections)
 # - /ni_status/reload - Reload configuration
+# - /ni_status/set-model - Set model for manager or worker
 # - /ni_status/assignment/* - Model assignments
-
-set -e
-source /opt/hiclaw/scripts/lib/base.sh
 
 MONITOR_PORT="${MONITOR_PORT:-18080}"
 PID_FILE="/tmp/monitor-server.pid"
 LOG_FILE="/tmp/monitor-server.log"
+
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
+}
 
 start_server() {
     if [ -f "${PID_FILE}" ] && kill -0 "$(cat ${PID_FILE})" 2>/dev/null; then
@@ -21,7 +23,13 @@ start_server() {
 
     log "Starting monitor server on port ${MONITOR_PORT}..."
     
-    python3 << 'PYTHON_SCRIPT' > "${LOG_FILE}" 2>&1 &
+    # Export environment variables for Python
+    export HIGRESS_COOKIE_FILE="${HIGRESS_COOKIE_FILE:-/tmp/higress-session-cookie}"
+    export HICLAW_ADMIN_USER="${HICLAW_ADMIN_USER:-admin}"
+    export HICLAW_ADMIN_PASSWORD="${HICLAW_ADMIN_PASSWORD:-admin}"
+    export MANAGER_GATEWAY_KEY="${HICLAW_MANAGER_GATEWAY_KEY:-}"
+    
+    python3 - << 'EOF' >> "${LOG_FILE}" 2>&1 &
 import http.server
 import json
 import os
@@ -32,6 +40,94 @@ from urllib.parse import urlparse, parse_qs
 
 PORT = int(os.environ.get('MONITOR_PORT', 18080))
 AGENTS_DIR = '/root/hiclaw-fs/agents'
+OPENCLAW_CONFIG = '/root/manager-workspace/openclaw.json'
+HICLAW_FS = '/root/hiclaw-fs'
+
+def run_cmd(cmd, check=False):
+    try:
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=30)
+        if check and result.returncode != 0:
+            return None, result.stderr
+        return result.stdout.strip(), None
+    except Exception as e:
+        return None, str(e)
+
+def ensure_higress_login():
+    cookie_file = os.environ.get('HIGRESS_COOKIE_FILE') or '/tmp/higress-session-cookie'
+    admin_user = os.environ.get('HICLAW_ADMIN_USER') or 'admin'
+    admin_pass = os.environ.get('HICLAW_ADMIN_PASSWORD') or 'admin'
+    
+    print('[DEBUG] ensure_higress_login: cookie_file=' + str(cookie_file))
+    print('[DEBUG] ensure_higress_login: admin_user=' + str(admin_user))
+    print('[DEBUG] ensure_higress_login: admin_pass length=' + str(len(admin_pass)))
+    print('[DEBUG] ensure_higress_login: cookie exists=' + str(os.path.exists(cookie_file)))
+    
+    if os.path.exists(cookie_file) and os.path.getsize(cookie_file) > 0:
+        print('[DEBUG] Testing existing cookie...')
+        test_result, _ = run_cmd('curl -s -b "' + cookie_file + '" "http://127.0.0.1:8001/v1/ai/providers"')
+        if test_result and '<!DOCTYPE html>' not in test_result:
+            print('[DEBUG] Existing cookie is valid')
+            return True
+        else:
+            print('[DEBUG] Existing cookie is invalid, re-login required')
+    
+    if not admin_user or not admin_pass:
+        print('[ERROR] Missing admin credentials: user=' + str(admin_user) + ', pass=' + ('set' if admin_pass else 'empty'))
+        return False
+    
+    print('[DEBUG] Logging in to Higress Console as ' + admin_user)
+    login_cmd = 'curl -s -X POST "http://127.0.0.1:8001/session/login" -H "Content-Type: application/json" -c "' + cookie_file + '" -d \'{"username":"' + admin_user + '","password":"' + admin_pass + '"}\''
+    print('[DEBUG] Login command: ' + login_cmd)
+    result, err = run_cmd(login_cmd)
+    result_str = str(result)[:200] if result else 'None'
+    print('[DEBUG] Login result: ' + result_str)
+    if err:
+        print('[DEBUG] Login error: ' + str(err))
+    
+    if os.path.exists(cookie_file):
+        print('[DEBUG] Cookie file created, size=' + str(os.path.getsize(cookie_file)))
+        if os.path.getsize(cookie_file) > 0:
+            return True
+    
+    print('[ERROR] Failed to login to Higress Console')
+    return False
+
+def higress_api(method, path, data=None):
+    cookie_file = os.environ.get('HIGRESS_COOKIE_FILE') or '/tmp/higress-session-cookie'
+    
+    if not ensure_higress_login():
+        return None, 'Failed to login to Higress Console'
+    
+    cmd = 'curl -s -m 30 -X ' + method + ' "http://127.0.0.1:8001' + path + '"'
+    cmd += ' -H "Content-Type: application/json"'
+    cmd += ' -b "' + cookie_file + '"'
+    if data:
+        data_str = json.dumps(data).replace("'", "'\"'\"'")
+        cmd += " -d '" + data_str + "'"
+    
+    result, err = run_cmd(cmd)
+    if err:
+        return None, err
+    if not result:
+        return None, 'Empty response'
+    
+    if '<!DOCTYPE html>' in result:
+        return None, 'Session expired (got HTML)'
+    
+    try:
+        parsed = json.loads(result)
+        if isinstance(parsed, dict):
+            if parsed.get('success') == False:
+                return None, parsed.get('message', 'API error')
+            if parsed.get('code') and parsed.get('code') != 0:
+                return None, parsed.get('message', 'API error: ' + str(parsed.get('code')))
+        return parsed, None
+    except Exception as e:
+        if '404' in result or 'Not Found' in result:
+            return None, 'Not found'
+        if '401' in result or 'Unauthorized' in result:
+            return None, 'Unauthorized'
+        return result, None
 
 class MonitorHandler(http.server.BaseHTTPRequestHandler):
     def log_message(self, format, *args):
@@ -65,6 +161,10 @@ class MonitorHandler(http.server.BaseHTTPRequestHandler):
         elif path.startswith('/ni_status/assignment/workers/'):
             worker = path.split('/')[-1]
             self.get_assignment(worker)
+        elif path == '/ni_status/providers':
+            self.list_providers()
+        elif path == '/ni_status/route':
+            self.get_route()
         else:
             self.send_json({'error': 'Not found'}, 404)
     
@@ -80,6 +180,12 @@ class MonitorHandler(http.server.BaseHTTPRequestHandler):
         
         if path == '/ni_status/reload':
             self.reload_config(data)
+        elif path == '/ni_status/set-model':
+            self.set_model(data)
+        elif path == '/ni_status/test-provider':
+            self.test_provider(data)
+        elif path == '/ni_status/create-provider':
+            self.create_provider(data)
         else:
             self.send_json({'error': 'Not found'}, 404)
     
@@ -174,14 +280,345 @@ class MonitorHandler(http.server.BaseHTTPRequestHandler):
             json.dump(data, f, indent=2)
         
         self.send_json({'status': 'saved', 'name': name})
+    
+    def list_providers(self):
+        providers_data, err = higress_api('GET', '/v1/ai/providers')
+        if err:
+            self.send_json({'success': False, 'error': 'Failed to list providers: ' + err}, 500)
+            return
+        
+        providers = providers_data.get('data', providers_data) if providers_data else []
+        self.send_json({'success': True, 'providers': providers})
+    
+    def get_route(self):
+        routes_data, err = higress_api('GET', '/v1/ai/routes')
+        if err:
+            self.send_json({'success': False, 'error': 'Failed to get routes: ' + err}, 500)
+            return
+        
+        routes = routes_data.get('data', routes_data) if routes_data else []
+        ai_routes = [r for r in routes if r.get('name', '').startswith('ai-route-')]
+        
+        self.send_json({'success': True, 'routes': ai_routes})
+    
+    def create_provider(self, data):
+        provider_name = data.get('name')
+        provider_type = data.get('type', 'openai')
+        api_key = data.get('apiKey')
+        base_url = data.get('baseUrl')
+        
+        if not provider_name or not api_key:
+            self.send_json({'success': False, 'error': 'Provider name and API key are required'}, 400)
+            return
+        
+        provider_body = {
+            'name': provider_name,
+            'type': provider_type,
+            'tokens': [api_key]
+        }
+        
+        if base_url:
+            provider_body['rawConfigs'] = {
+                '_custom': 'true',
+                'openaiCustomUrl': base_url
+            }
+            svc_name = provider_name + '.dns'
+            provider_body['rawConfigs']['openaiCustomServiceName'] = svc_name
+            provider_body['rawConfigs']['openaiCustomServicePort'] = 443
+            
+            svc_body = {'type': 'dns', 'name': svc_name, 'domain': base_url.replace('https://', '').replace('http://', '').split('/')[0], 'port': 443}
+            if ':' in svc_body['domain']:
+                parts = svc_body['domain'].split(':')
+                svc_body['domain'] = parts[0]
+                svc_body['port'] = int(parts[1])
+            
+            higress_api('POST', '/v1/service-sources', svc_body)
+        
+        result, err = higress_api('POST', '/v1/ai/providers', provider_body)
+        if err:
+            self.send_json({'success': False, 'error': 'Failed to create provider: ' + err}, 500)
+            return
+        
+        route_name = 'ai-route-' + provider_name
+        route_path = '/' + provider_name
+        
+        route_data, _ = higress_api('GET', '/v1/ai/routes/' + route_name)
+        route_exists = route_data and not route_data.get('error')
+        
+        new_route = {
+            'name': route_name,
+            'domains': ['ai-gateway.hiclaw.io'],
+            'pathPredicate': {'matchType': 'PRE', 'matchValue': route_path, 'caseSensitive': False},
+            'authConfig': {'enabled': True, 'allowedCredentialTypes': ['key-auth'], 'allowedConsumers': ['manager']},
+            'upstreams': [{'provider': provider_name, 'weight': 100, 'modelMapping': {}}]
+        }
+        
+        if route_exists:
+            higress_api('PUT', '/v1/ai/routes/' + route_name, new_route)
+            print('[DEBUG] Updated existing route for provider: ' + provider_name)
+        else:
+            higress_api('POST', '/v1/ai/routes', new_route)
+            print('[DEBUG] Created new route for provider: ' + provider_name)
+        
+        self.send_json({'success': True, 'provider': provider_name, 'routePath': route_path, 'routeUpdated': True})
+    
+    def test_provider(self, data):
+        provider_name = data.get('provider')
+        if not provider_name:
+            self.send_json({'success': False, 'error': 'Provider name required'}, 400)
+            return
+        
+        provider_data, err = higress_api('GET', '/v1/ai/providers/' + provider_name)
+        data_str = str(provider_data)[:200] if provider_data else 'None'
+        print('[DEBUG] test_provider GET result: err=' + str(err) + ', data=' + data_str)
+        if err:
+            self.send_json({'success': False, 'error': 'Failed to get provider: ' + err}, 500)
+            return
+        
+        if not provider_data:
+            self.send_json({'success': False, 'error': 'Provider not found'}, 404)
+            return
+        
+        provider = provider_data.get('data', provider_data)
+        if not provider or not isinstance(provider, dict):
+            self.send_json({'success': False, 'error': 'Invalid provider data'}, 500)
+            return
+        
+        tokens = provider.get('tokens', [])
+        if not tokens:
+            self.send_json({'success': False, 'error': 'No API key configured'}, 400)
+            return
+        
+        api_key = tokens[0] if isinstance(tokens[0], str) else (tokens[0].get('value', '') if isinstance(tokens[0], dict) else '')
+        
+        raw_configs = provider.get('rawConfigs', {}) or {}
+        is_custom = raw_configs.get('_custom') or raw_configs.get('openaiCustomUrl')
+        
+        if is_custom:
+            base_url = raw_configs.get('openaiCustomUrl', '')
+            if not base_url:
+                svc_name = raw_configs.get('openaiCustomServiceName', provider_name + '.dns')
+                svc_port = raw_configs.get('openaiCustomServicePort', 443)
+                base_url = 'https://' + svc_name + ':' + str(svc_port) + '/v1'
+        else:
+            base_url = 'http://ai-gateway.hiclaw.io:8080/v1'
+        
+        test_url = base_url.rstrip('/') + '/models'
+        
+        cmd = 'curl -s -m 10 -H "Authorization: Bearer ' + api_key + '" "' + test_url + '"'
+        result, err = run_cmd(cmd)
+        
+        if err:
+            self.send_json({'success': False, 'error': 'Connection failed: ' + err}, 500)
+            return
+        
+        if not result:
+            self.send_json({'success': False, 'error': 'Empty response from provider'}, 500)
+            return
+        
+        try:
+            response = json.loads(result)
+            if 'error' in response:
+                self.send_json({'success': False, 'error': response.get('error', {}).get('message', 'API error')}, 500)
+            elif 'data' in response or 'models' in response:
+                self.send_json({'success': True, 'models': len(response.get('data', response.get('models', [])))})
+            else:
+                self.send_json({'success': True, 'response': 'connected'})
+        except:
+            if '200' in result or 'OK' in result or result:
+                self.send_json({'success': True, 'response': 'connected'})
+            else:
+                self.send_json({'success': False, 'error': 'Invalid response'}, 500)
+    
+    def set_model(self, data):
+        target = data.get('target', 'manager')
+        provider = data.get('provider')
+        model = data.get('model')
+        context_window = data.get('contextWindow', 200000)
+        max_tokens = data.get('maxTokens', 64000)
+        reasoning = data.get('reasoning', True)
+        
+        if not provider or not model:
+            self.send_json({'success': False, 'error': 'Provider and model are required'}, 400)
+            return
+        
+        errors = []
+        route_updated = False
+        
+        if target == 'manager':
+            route_name = 'ai-route-' + provider
+            route_path = '/' + provider
+            
+            print('[DEBUG] Creating/updating AI route for provider: ' + provider)
+            print('[DEBUG] Route name: ' + route_name + ', path: ' + route_path)
+            
+            route_data, err = higress_api('GET', '/v1/ai/routes/' + route_name)
+            print('[DEBUG] GET route result: err=' + str(err))
+            
+            route = None
+            if route_data and not err:
+                route = route_data.get('data', route_data)
+            
+            new_route = {
+                'name': route_name,
+                'domains': ['ai-gateway.hiclaw.io'],
+                'pathPredicate': {'matchType': 'PRE', 'matchValue': route_path, 'caseSensitive': False},
+                'authConfig': {'enabled': True, 'allowedCredentialTypes': ['key-auth'], 'allowedConsumers': ['manager']},
+                'upstreams': [{'provider': provider, 'weight': 100, 'modelMapping': {}}]
+            }
+            
+            if route:
+                print('[DEBUG] Updating existing route')
+                result, err = higress_api('PUT', '/v1/ai/routes/' + route_name, new_route)
+            else:
+                print('[DEBUG] Creating new route')
+                result, err = higress_api('POST', '/v1/ai/routes', new_route)
+            
+            if err:
+                errors.append('Failed to create/update AI route: ' + str(err))
+            else:
+                route_updated = True
+                print('[DEBUG] Route created/updated successfully')
+            
+            if os.path.exists(OPENCLAW_CONFIG):
+                try:
+                    with open(OPENCLAW_CONFIG) as f:
+                        config = json.load(f)
+                    
+                    gateway_provider_name = 'hiclaw-' + provider
+                    model_id = gateway_provider_name + '/' + model
+                    
+                    if 'models' not in config:
+                        config['models'] = {'mode': 'merge', 'providers': {}}
+                    if 'providers' not in config['models']:
+                        config['models']['providers'] = {}
+                    if gateway_provider_name not in config['models']['providers']:
+                        config['models']['providers'][gateway_provider_name] = {
+                            'baseUrl': 'http://ai-gateway.hiclaw.io:8080' + route_path + '/v1',
+                            'apiKey': os.environ.get('MANAGER_GATEWAY_KEY') or os.environ.get('HICLAW_MANAGER_GATEWAY_KEY', ''),
+                            'api': 'openai-completions',
+                            'models': []
+                        }
+                    else:
+                        config['models']['providers'][gateway_provider_name]['baseUrl'] = 'http://ai-gateway.hiclaw.io:8080' + route_path + '/v1'
+                    
+                    models_list = config['models']['providers'][gateway_provider_name].get('models', [])
+                    model_exists = any(m.get('id') == model for m in models_list)
+                    
+                    if not model_exists:
+                        models_list.append({
+                            'id': model,
+                            'name': model,
+                            'reasoning': reasoning,
+                            'contextWindow': context_window,
+                            'maxTokens': max_tokens,
+                            'input': ['text']
+                        })
+                        config['models']['providers'][gateway_provider_name]['models'] = models_list
+                    
+                    if 'agents' not in config:
+                        config['agents'] = {'defaults': {}}
+                    if 'defaults' not in config['agents']:
+                        config['agents']['defaults'] = {}
+                    if 'model' not in config['agents']['defaults']:
+                        config['agents']['defaults']['model'] = {}
+                    
+                    config['agents']['defaults']['model']['primary'] = model_id
+                    
+                    if 'models' not in config['agents']['defaults']:
+                        config['agents']['defaults']['models'] = {}
+                    config['agents']['defaults']['models'][model_id] = {'alias': model}
+                    
+                    with open(OPENCLAW_CONFIG, 'w') as f:
+                        json.dump(config, f, indent=2)
+                    
+                    subprocess.run(['curl', '-s', '-X', 'POST', 'http://127.0.0.1:18799/api/reload'], check=False, timeout=5)
+                    
+                except Exception as e:
+                    errors.append('Failed to update OpenClaw config: ' + str(e))
+            else:
+                errors.append('OpenClaw config not found: ' + OPENCLAW_CONFIG)
+            
+            model_dir = os.path.join(AGENTS_DIR, 'manager')
+            os.makedirs(model_dir, exist_ok=True)
+            with open(os.path.join(model_dir, 'model.json'), 'w') as f:
+                json.dump({
+                    'provider': provider,
+                    'model': model,
+                    'routePath': route_path,
+                    'contextWindow': context_window,
+                    'maxTokens': max_tokens,
+                    'reasoning': reasoning,
+                    'updatedAt': datetime.utcnow().isoformat() + 'Z'
+                }, f, indent=2)
+        else:
+            worker_dir = os.path.join(AGENTS_DIR, target)
+            os.makedirs(worker_dir, exist_ok=True)
+            
+            with open(os.path.join(worker_dir, 'model.json'), 'w') as f:
+                json.dump({
+                    'provider': provider,
+                    'model': model,
+                    'contextWindow': context_window,
+                    'maxTokens': max_tokens,
+                    'reasoning': reasoning,
+                    'updatedAt': datetime.utcnow().isoformat() + 'Z'
+                }, f, indent=2)
+            
+            worker_config = os.path.join(HICLAW_FS, 'agents', target, 'openclaw.json')
+            if os.path.exists(worker_config):
+                try:
+                    with open(worker_config) as f:
+                        config = json.load(f)
+                    
+                    model_id = 'hiclaw-gateway/' + model
+                    
+                    if 'models' in config and 'providers' in config['models']:
+                        if 'hiclaw-gateway' in config['models']['providers']:
+                            models_list = config['models']['providers']['hiclaw-gateway'].get('models', [])
+                            model_exists = any(m.get('id') == model for m in models_list)
+                            
+                            if not model_exists:
+                                models_list.append({
+                                    'id': model,
+                                    'name': model,
+                                    'reasoning': reasoning,
+                                    'contextWindow': context_window,
+                                    'maxTokens': max_tokens,
+                                    'input': ['text']
+                                })
+                            
+                            if 'agents' in config and 'defaults' in config['agents']:
+                                if 'model' in config['agents']['defaults']:
+                                    config['agents']['defaults']['model']['primary'] = model_id
+                                if 'models' not in config['agents']['defaults']:
+                                    config['agents']['defaults']['models'] = {}
+                                config['agents']['defaults']['models'][model_id] = {'alias': model}
+                    
+                    with open(worker_config, 'w') as f:
+                        json.dump(config, f, indent=2)
+                    
+                except Exception as e:
+                    errors.append('Failed to update worker config: ' + str(e))
+        
+        if errors:
+            self.send_json({'success': False, 'errors': errors, 'partial': True})
+        else:
+            self.send_json({
+                'success': True,
+                'target': target,
+                'provider': provider,
+                'model': model,
+                'routeUpdated': route_updated
+            })
 
 class ReuseAddrServer(socketserver.TCPServer):
     allow_reuse_address = True
 
 with ReuseAddrServer(('', PORT), MonitorHandler) as httpd:
-    print(f'Monitor server running on port {PORT}')
+    print('Monitor server running on port ' + str(PORT))
     httpd.serve_forever()
-PYTHON_SCRIPT
+EOF
 
     local pid=$!
     echo $pid > "${PID_FILE}"

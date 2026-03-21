@@ -246,7 +246,6 @@
         
         select option { background: #000; color: var(--text-primary); }
         
-        /* Theme Switcher */
         .theme-switcher {
             display: flex;
             gap: 5px;
@@ -267,7 +266,6 @@
         .theme-btn.cyber { background: linear-gradient(45deg, #ff00ff, #00ffff); }
         .theme-btn.office { background: linear-gradient(45deg, #8B4513, #D2691E); }
         
-        /* Worker Animation */
         .worker-avatar {
             width: 40px;
             height: 40px;
@@ -307,7 +305,6 @@
             50% { transform: scale(1.2); opacity: 0.8; }
         }
         
-        /* Monitor Panel */
         .monitor-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -347,7 +344,6 @@
             transition: width 0.5s ease;
         }
         
-        /* Backup Section */
         .backup-info {
             font-size: 0.65em;
             color: var(--text-secondary);
@@ -356,7 +352,6 @@
             border: 1px dashed rgba(0,255,0,0.3);
         }
         
-        /* Two Column Layout */
         .two-columns {
             display: grid;
             grid-template-columns: 1fr 1fr;
@@ -367,7 +362,6 @@
             .two-columns { grid-template-columns: 1fr; }
         }
         
-        /* Status on Home */
         .home-status {
             margin-top: 15px;
             border-top: 2px dashed var(--border-color);
@@ -381,7 +375,6 @@
             color: var(--text-secondary);
         }
         
-        /* Service Source Config */
         .service-source-config {
             background: rgba(0,255,0,0.05);
             padding: 10px;
@@ -415,7 +408,6 @@
             <div class="tab" data-tab="monitor">MONITOR</div>
         </div>
 
-        <!-- Home Panel -->
         <div class="panel active" id="home-panel">
             <div class="two-columns">
                 <div class="pixel-box">
@@ -441,7 +433,6 @@
                 </div>
             </div>
             
-            <!-- Status Section on Home -->
             <div class="home-status">
                 <div class="home-status-title">SYSTEM STATUS</div>
                 <div class="status-grid" id="home-status-grid">
@@ -468,7 +459,6 @@
                 </div>
             </div>
             
-            <!-- Monitor Preview -->
             <div class="pixel-box" style="margin-top: 15px;">
                 <div class="pixel-title">
                     <span>MONITOR PREVIEW</span>
@@ -478,7 +468,6 @@
             </div>
         </div>
 
-        <!-- Providers Panel -->
         <div class="panel" id="providers-panel">
             <div class="pixel-box">
                 <div class="pixel-title">
@@ -489,7 +478,6 @@
             </div>
         </div>
 
-        <!-- Assignment Panel -->
         <div class="panel" id="assignment-panel">
             <div class="pixel-box">
                 <div class="pixel-title">MODEL ASSIGNMENT</div>
@@ -512,7 +500,6 @@
             </div>
         </div>
 
-        <!-- Monitor Panel -->
         <div class="panel" id="monitor-panel">
             <div class="pixel-box">
                 <div class="pixel-title">
@@ -529,7 +516,6 @@
         </div>
     </div>
 
-    <!-- Create/Edit Provider Modal -->
     <div class="modal" id="provider-modal">
         <div class="modal-content">
             <div class="modal-header">
@@ -577,7 +563,6 @@
         </div>
     </div>
 
-    <!-- Set Model Modal -->
     <div class="modal" id="model-modal">
         <div class="modal-content">
             <div class="modal-header">
@@ -612,7 +597,6 @@
         </div>
     </div>
 
-    <!-- Reset Modal -->
     <div class="modal" id="reset-modal">
         <div class="modal-content">
             <div class="modal-header">
@@ -634,6 +618,7 @@
         const API_BASE = window.location.origin;
         let providers = [];
         let workers = [];
+        let workerModels = {};
         let managerModel = {};
         let backupData = null;
         let currentTheme = 'pixel';
@@ -675,18 +660,18 @@
                 root.style.setProperty(key, value);
             });
             document.querySelectorAll('.theme-btn').forEach(btn => btn.classList.remove('active'));
-            document.querySelector(`.theme-btn.${theme}`).classList.add('active');
+            document.querySelector('.theme-btn.' + theme).classList.add('active');
             localStorage.setItem('ai-gateway-theme', theme);
         }
 
         function switchTab(tabName) {
             document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
             document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
-            document.querySelector(`.tab[data-tab="${tabName}"]`).classList.add('active');
-            document.getElementById(`${tabName}-panel`).classList.add('active');
+            document.querySelector('.tab[data-tab="' + tabName + '"]').classList.add('active');
+            document.getElementById(tabName + '-panel').classList.add('active');
         }
 
-        async function apiCall(method, path, body = null) {
+        async function apiCall(method, path, body) {
             const options = {
                 method,
                 credentials: 'include',
@@ -694,12 +679,12 @@
             };
             if (body) options.body = JSON.stringify(body);
             
-            let response = await fetch(`${API_BASE}${path}`, options);
+            let response = await fetch(API_BASE + path, options);
             
             if (response.status === 401 || response.status === 403) {
                 const loggedIn = await login();
                 if (loggedIn) {
-                    response = await fetch(`${API_BASE}${path}`, options);
+                    response = await fetch(API_BASE + path, options);
                 }
             }
             return response;
@@ -707,12 +692,12 @@
 
         async function login() {
             try {
-                const response = await fetch(`${API_BASE}/session/login`, {
+                const response = await fetch(API_BASE + '/session/login', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     credentials: 'include',
                     body: JSON.stringify({
-                        name: localStorage.getItem('higress_user') || 'admin',
+                        username: localStorage.getItem('higress_user') || 'admin',
                         password: localStorage.getItem('higress_pass') || 'admin'
                     })
                 });
@@ -721,12 +706,13 @@
             return false;
         }
 
-        function showToast(message, type = 'info') {
+        function showToast(message, type) {
+            type = type || 'info';
             const toast = document.createElement('div');
-            toast.className = `toast ${type}`;
+            toast.className = 'toast ' + type;
             toast.textContent = message;
             document.body.appendChild(toast);
-            setTimeout(() => toast.remove(), 3000);
+            setTimeout(function() { toast.remove(); }, 3000);
         }
 
         function closeModal(id) { document.getElementById(id).classList.remove('active'); }
@@ -748,7 +734,7 @@
 
         function updateServiceDomain() {
             const name = document.getElementById('provider-name').value || 'provider';
-            document.getElementById('service-domain').value = `${name}.dns`;
+            document.getElementById('service-domain').value = name + '.dns';
         }
 
         document.getElementById('provider-name').addEventListener('input', updateServiceDomain);
@@ -760,22 +746,65 @@
                 return;
             }
             
-            container.innerHTML = providers.map(p => `
-                <div class="card">
-                    <div class="card-header">
-                        <div class="card-title">${p.name.toUpperCase()}</div>
-                        <div class="card-actions">
-                            <button class="btn btn-small" onclick="editProvider('${p.name}')">EDIT</button>
-                            <button class="btn btn-danger btn-small" onclick="deleteProvider('${p.name}')">DEL</button>
-                        </div>
-                    </div>
-                    <div class="card-info">TYPE: <span>${p.type}</span></div>
-                    <div class="card-info">TOKENS: <span>${(p.tokens || []).length} configured</span></div>
-                    <div class="card-info">DOMAIN: <span>${p.name}.dns</span></div>
-                </div>
-            `).join('');
+            container.innerHTML = providers.map(function(p) {
+                const isCustom = p.rawConfigs && (p.rawConfigs._custom || p.rawConfigs.openaiCustomUrl);
+                const displayType = isCustom ? 'custom' : p.type;
+                return '<div class="card">' +
+                    '<div class="card-header">' +
+                        '<div class="card-title">' + p.name.toUpperCase() + '</div>' +
+                        '<div class="card-actions">' +
+                            '<button class="btn btn-small" onclick="testProvider(\'' + p.name + '\')" id="test-' + p.name + '">TEST</button>' +
+                            '<button class="btn btn-small" onclick="editProvider(\'' + p.name + '\')">EDIT</button>' +
+                            '<button class="btn btn-danger btn-small" onclick="deleteProvider(\'' + p.name + '\')">DEL</button>' +
+                        '</div>' +
+                    '</div>' +
+                    '<div class="card-info">TYPE: <span>' + displayType + '</span></div>' +
+                    '<div class="card-info">TOKENS: <span>' + (p.tokens || []).length + ' configured</span></div>' +
+                    '<div class="card-info">DOMAIN: <span>' + p.name + '.dns</span></div>' +
+                    '<div class="card-info" id="test-result-' + p.name + '"></div>' +
+                '</div>';
+            }).join('');
             
             document.getElementById('status-providers').textContent = providers.length;
+        }
+        
+        async function testProvider(name) {
+            const btn = document.getElementById('test-' + name);
+            const resultEl = document.getElementById('test-result-' + name);
+            
+            btn.disabled = true;
+            btn.textContent = 'TESTING...';
+            resultEl.innerHTML = '<span style="color: #ffaa00;">CONNECTING...</span>';
+            
+            try {
+                const response = await apiCall('POST', '/ni_status/test-provider', { provider: name });
+                
+                if (response.ok) {
+                    const result = await response.json();
+                    if (result.success) {
+                        btn.textContent = 'OK';
+                        resultEl.innerHTML = '<span style="color: #00ff00;">CONNECTED</span>';
+                        showToast('PROVIDER ' + name + ' CONNECTED', 'success');
+                    } else {
+                        btn.textContent = 'FAIL';
+                        resultEl.innerHTML = '<span style="color: #ff4444;">FAILED: ' + (result.error || 'Unknown') + '</span>';
+                        showToast('PROVIDER ' + name + ' FAILED', 'error');
+                    }
+                } else {
+                    btn.textContent = 'FAIL';
+                    resultEl.innerHTML = '<span style="color: #ff4444;">HTTP ' + response.status + '</span>';
+                    showToast('TEST FAILED', 'error');
+                }
+            } catch (err) {
+                btn.textContent = 'FAIL';
+                resultEl.innerHTML = '<span style="color: #ff4444;">ERROR: ' + err.message + '</span>';
+                showToast('TEST ERROR: ' + err.message, 'error');
+            }
+            
+            btn.disabled = false;
+            setTimeout(function() {
+                btn.textContent = 'TEST';
+            }, 3000);
         }
 
         async function refreshProviders() {
@@ -790,15 +819,17 @@
 
         function updateModelProviderSelect() {
             const select = document.getElementById('model-provider');
-            select.innerHTML = providers.map(p => `<option value="${p.name}">${p.name} (${p.type})</option>`).join('');
+            select.innerHTML = providers.map(function(p) {
+                return '<option value="' + p.name + '">' + p.name + ' (' + p.type + ')</option>';
+            }).join('');
         }
 
         async function deleteProvider(name) {
-            if (!confirm(`DELETE PROVIDER "${name}"?`)) return;
+            if (!confirm('DELETE PROVIDER "' + name + '"?')) return;
             
             await createBackup();
             
-            const response = await apiCall('DELETE', `/v1/ai/providers/${name}`);
+            const response = await apiCall('DELETE', '/v1/ai/providers/' + name);
             if (response.ok) {
                 showToast('PROVIDER DELETED', 'success');
                 refreshProviders();
@@ -817,25 +848,64 @@
         }
 
         function editProvider(name) {
-            const provider = providers.find(p => p.name === name);
+            const provider = providers.find(function(p) { return p.name === name; });
             if (!provider) return;
             
             document.getElementById('provider-edit-mode').value = 'edit';
             document.getElementById('provider-original-name').value = name;
             document.getElementById('provider-modal-title').textContent = 'EDIT AI PROVIDER';
-            document.getElementById('provider-type').value = provider.type;
+            
+            const isCustom = provider.rawConfigs && (provider.rawConfigs._custom || provider.rawConfigs.openaiCustomUrl);
+            document.getElementById('provider-type').value = isCustom ? 'custom' : provider.type;
+            
             document.getElementById('provider-name').value = provider.name;
             document.getElementById('provider-apikey').value = (provider.tokens || [])[0] || '';
             
-            const customUrl = provider.rawConfigs?.apiUrl || '';
+            const customUrl = provider.rawConfigs && (provider.rawConfigs.openaiCustomUrl || provider.rawConfigs.apiUrl) ? (provider.rawConfigs.openaiCustomUrl || provider.rawConfigs.apiUrl) : '';
             document.getElementById('provider-custom-url').value = customUrl;
-            document.getElementById('custom-url-group').style.display = customUrl ? 'block' : 'none';
+            document.getElementById('custom-url-group').style.display = (customUrl || isCustom) ? 'block' : 'none';
             
             updateServiceDomain();
             showModal('provider-modal');
         }
 
-        document.getElementById('provider-form').addEventListener('submit', async (e) => {
+        async function createServiceSource(name, customUrl) {
+            let proto = 'https';
+            let port = 443;
+            let urlStrip = customUrl;
+            
+            if (customUrl.startsWith('https://')) {
+                urlStrip = customUrl.substring(8);
+            } else if (customUrl.startsWith('http://')) {
+                proto = 'http';
+                port = 80;
+                urlStrip = customUrl.substring(7);
+            }
+            
+            let domain = urlStrip.split('/')[0];
+            if (domain.includes(':')) {
+                port = parseInt(domain.split(':')[1]);
+                domain = domain.split(':')[0];
+            }
+            
+            const svcBody = {
+                type: 'dns',
+                name: name,
+                port: port,
+                protocol: proto,
+                proxyName: '',
+                domain: domain
+            };
+            
+            const existingSvc = await apiCall('GET', '/v1/service-sources/' + name);
+            if (existingSvc.ok) {
+                return await apiCall('PUT', '/v1/service-sources/' + name, svcBody);
+            } else {
+                return await apiCall('POST', '/v1/service-sources', svcBody);
+            }
+        }
+
+        document.getElementById('provider-form').addEventListener('submit', async function(e) {
             e.preventDefault();
             
             const editMode = document.getElementById('provider-edit-mode').value;
@@ -850,30 +920,78 @@
                 return;
             }
             
+            if (type === 'custom' && !customUrl) {
+                showToast('CUSTOM URL REQUIRED FOR CUSTOM TYPE', 'error');
+                return;
+            }
+            
             await createBackup();
             
-            const body = {
-                type: type === 'custom' ? 'openai' : type,
-                name: name,
-                tokens: [apiKey],
-                protocol: 'openai/v1',
-                tokenFailoverConfig: { enabled: false }
-            };
+            let body;
             
-            if (customUrl) {
-                body.rawConfigs = { apiUrl: customUrl, mergeConsecutiveMessages: true };
-            } else if (type === 'qwen') {
-                body.rawConfigs = { qwenEnableSearch: false, qwenEnableCompatible: true, qwenFileIds: [], mergeConsecutiveMessages: true };
+            if (type === 'custom' && customUrl) {
+                let proto = 'https';
+                let port = 443;
+                let urlStrip = customUrl;
+                
+                if (customUrl.startsWith('https://')) {
+                    urlStrip = customUrl.substring(8);
+                } else if (customUrl.startsWith('http://')) {
+                    proto = 'http';
+                    port = 80;
+                    urlStrip = customUrl.substring(7);
+                }
+                
+                const domain = urlStrip.split('/')[0];
+                if (domain.includes(':')) {
+                    port = parseInt(domain.split(':')[1]);
+                }
+                
+                const svcRes = await createServiceSource(name, customUrl);
+                if (!svcRes.ok) {
+                    showToast('FAILED TO CREATE SERVICE SOURCE', 'error');
+                    return;
+                }
+                
+                body = {
+                    type: 'openai',
+                    name: name,
+                    tokens: [apiKey],
+                    version: 0,
+                    protocol: 'openai/v1',
+                    tokenFailoverConfig: { enabled: false },
+                    rawConfigs: {
+                        openaiCustomUrl: customUrl,
+                        openaiCustomServiceName: name + '.dns',
+                        openaiCustomServicePort: port,
+                        mergeConsecutiveMessages: true,
+                        _custom: true
+                    }
+                };
             } else {
-                body.rawConfigs = { mergeConsecutiveMessages: true };
+                body = {
+                    type: type,
+                    name: name,
+                    tokens: [apiKey],
+                    protocol: 'openai/v1',
+                    tokenFailoverConfig: { enabled: false }
+                };
+                
+                if (customUrl) {
+                    body.rawConfigs = { apiUrl: customUrl, mergeConsecutiveMessages: true };
+                } else if (type === 'qwen') {
+                    body.rawConfigs = { qwenEnableSearch: false, qwenEnableCompatible: true, qwenFileIds: [], mergeConsecutiveMessages: true };
+                } else {
+                    body.rawConfigs = { mergeConsecutiveMessages: true };
+                }
             }
             
             let response;
             if (editMode === 'edit' && originalName !== name) {
-                await apiCall('DELETE', `/v1/ai/providers/${originalName}`);
+                await apiCall('DELETE', '/v1/ai/providers/' + originalName);
                 response = await apiCall('POST', '/v1/ai/providers', body);
             } else if (editMode === 'edit') {
-                response = await apiCall('PUT', `/v1/ai/providers/${name}`, body);
+                response = await apiCall('PUT', '/v1/ai/providers/' + name, body);
             } else {
                 response = await apiCall('POST', '/v1/ai/providers', body);
             }
@@ -888,15 +1006,14 @@
             }
         });
 
-        // Model Assignment
         function showSetModelModal(target) {
             document.getElementById('model-target').value = target;
-            document.getElementById('model-modal-title').textContent = target === 'manager' ? 'SET MANAGER MODEL' : `SET WORKER MODEL: ${target}`;
+            document.getElementById('model-modal-title').textContent = target === 'manager' ? 'SET MANAGER MODEL' : 'SET WORKER MODEL: ' + target;
             updateModelProviderSelect();
             showModal('model-modal');
         }
 
-        document.getElementById('model-form').addEventListener('submit', async (e) => {
+        document.getElementById('model-form').addEventListener('submit', async function(e) {
             e.preventDefault();
             
             const target = document.getElementById('model-target').value;
@@ -914,39 +1031,35 @@
             await createBackup();
             
             const body = {
-                provider,
-                model,
+                target: target,
+                provider: provider,
+                model: model,
                 contextWindow: parseInt(context),
                 maxTokens: parseInt(maxTokens),
-                reasoning
+                reasoning: reasoning
             };
             
-            const path = target === 'manager' ? '/v1/ai/routes/default-ai-route' : `/ni_status/assignment/workers/${target}`;
-            
             try {
-                let response;
-                if (target === 'manager') {
-                    const routeRes = await apiCall('GET', path);
-                    const routeData = await routeRes.json();
-                    const patched = { ...routeData.data || routeData };
-                    if (patched.upstreams && patched.upstreams[0]) {
-                        patched.upstreams[0].provider = provider;
-                    }
-                    response = await apiCall('PUT', path, patched);
-                    
-                    if (response.ok) {
-                        await apiCall('POST', '/ni_status/reload', { target: 'manager' });
-                    }
-                } else {
-                    response = await apiCall('PUT', path, body);
-                }
+                const response = await apiCall('POST', '/ni_status/set-model', body);
                 
                 if (response.ok) {
-                    showToast('MODEL SET & APPLIED', 'success');
-                    closeModal('model-modal');
-                    refreshAssignments();
+                    const result = await response.json();
+                    if (result.success) {
+                        showToast('MODEL SET & APPLIED', 'success');
+                        closeModal('model-modal');
+                        
+                        if (target === 'manager') {
+                            refreshAssignments();
+                        } else {
+                            workerModels[target] = model;
+                            updateWorkerModelDisplay(target, model);
+                        }
+                    } else {
+                        showToast('ERROR: ' + (result.error || 'Unknown error'), 'error');
+                    }
                 } else {
-                    showToast('SET MODEL FAILED', 'error');
+                    const err = await response.text();
+                    showToast('SET MODEL FAILED: ' + err.substring(0, 50), 'error');
                 }
             } catch (err) {
                 showToast('ERROR: ' + err.message, 'error');
@@ -955,11 +1068,33 @@
 
         async function refreshAssignments() {
             try {
-                const routeRes = await apiCall('GET', '/v1/ai/routes/default-ai-route');
-                const routeData = await routeRes.json();
-                const provider = (routeData.data || routeData).upstreams?.[0]?.provider || 'unknown';
+                const routesRes = await apiCall('GET', '/v1/ai/routes');
+                const routesData = await routesRes.json();
+                const allRoutes = routesData.data || routesData || [];
+                const aiRoutes = allRoutes.filter(function(r) { return r.name && r.name.startsWith('ai-route-'); });
                 
-                document.getElementById('manager-model-info').textContent = `Provider: ${provider}`;
+                var routesInfo = aiRoutes.map(function(r) {
+                    var provider = r.upstreams && r.upstreams[0] ? r.upstreams[0].provider : 'unknown';
+                    var path = r.pathPredicate ? r.pathPredicate.matchValue : '/';
+                    return provider + ' (' + path + ')';
+                }).join(', ');
+                
+                if (!routesInfo) {
+                    routesInfo = 'No AI routes configured';
+                }
+                
+                try {
+                    const modelRes = await apiCall('GET', '/ni_status/assignment/manager');
+                    if (modelRes.ok) {
+                        const modelData = await modelRes.json();
+                        const modelInfo = modelData.model || 'default';
+                        document.getElementById('manager-model-info').textContent = 'Routes: ' + routesInfo + ' | Model: ' + modelInfo;
+                    } else {
+                        document.getElementById('manager-model-info').textContent = 'Routes: ' + routesInfo;
+                    }
+                } catch (e) {
+                    document.getElementById('manager-model-info').textContent = 'Routes: ' + routesInfo;
+                }
             } catch (e) {
                 document.getElementById('manager-model-info').textContent = 'Failed to load';
             }
@@ -967,13 +1102,12 @@
             renderWorkersQuickStatus();
         }
 
-        // Workers
         async function fetchWorkers() {
             try {
                 const response = await apiCall('GET', '/v1/consumers');
                 const data = await response.json();
                 const allConsumers = data.data || data || [];
-                workers = allConsumers.filter(c => c.name && c.name.startsWith('worker-'));
+                workers = allConsumers.filter(function(c) { return c.name && c.name.startsWith('worker-'); });
                 document.getElementById('status-workers').textContent = workers.length;
                 renderWorkersQuickStatus();
             } catch (e) {
@@ -991,36 +1125,56 @@
                 return;
             }
             
-            const workerHtml = workers.map(w => {
+            workers.forEach(function(w) {
+                const name = w.name.replace('worker-', '');
+                if (!workerModels[name]) {
+                    apiCall('GET', '/ni_status/assignment/workers/' + name).then(function(res) {
+                        if (res.ok) {
+                            res.json().then(function(data) {
+                                workerModels[name] = data.model || 'default';
+                                updateWorkerModelDisplay(name, workerModels[name]);
+                            });
+                        }
+                    });
+                }
+            });
+            
+            const workerHtml = workers.map(function(w) {
                 const name = w.name.replace('worker-', '');
                 const status = Math.random() > 0.3 ? 'idle' : (Math.random() > 0.5 ? 'busy' : 'sleeping');
-                return `
-                    <div class="assignment-card">
-                        <div style="display: flex; align-items: center;">
-                            <div class="worker-avatar">
-                                <svg class="pixel-person" viewBox="0 0 16 16">
-                                    <rect x="5" y="1" width="6" height="5" fill="${status === 'busy' ? '#ffaa00' : status === 'sleeping' ? '#6666ff' : '#00ff00'}"/>
-                                    <rect x="4" y="6" width="8" height="6" fill="${status === 'busy' ? '#ffaa00' : status === 'sleeping' ? '#6666ff' : '#00ff00'}"/>
-                                    <rect x="4" y="12" width="3" height="4" fill="${status === 'busy' ? '#ffaa00' : status === 'sleeping' ? '#6666ff' : '#00ff00'}"/>
-                                    <rect x="9" y="12" width="3" height="4" fill="${status === 'busy' ? '#ffaa00' : status === 'sleeping' ? '#6666ff' : '#00ff00'}"/>
-                                </svg>
-                                <div class="worker-status-indicator ${status}"></div>
-                            </div>
-                            <div class="assignment-info">
-                                <div class="assignment-name">${name} <span class="badge badge-worker">WORKER</span></div>
-                                <div class="assignment-model">Status: ${status.toUpperCase()}</div>
-                            </div>
-                        </div>
-                        <button class="btn btn-small" onclick="showSetModelModal('${name}')">SET MODEL</button>
-                    </div>
-                `;
+                const color = status === 'busy' ? '#ffaa00' : status === 'sleeping' ? '#6666ff' : '#00ff00';
+                const modelInfo = workerModels[name] || 'loading...';
+                return '<div class="assignment-card" id="worker-card-' + name + '">' +
+                    '<div style="display: flex; align-items: center;">' +
+                        '<div class="worker-avatar">' +
+                            '<svg class="pixel-person" viewBox="0 0 16 16">' +
+                                '<rect x="5" y="1" width="6" height="5" fill="' + color + '"/>' +
+                                '<rect x="4" y="6" width="8" height="6" fill="' + color + '"/>' +
+                                '<rect x="4" y="12" width="3" height="4" fill="' + color + '"/>' +
+                                '<rect x="9" y="12" width="3" height="4" fill="' + color + '"/>' +
+                            '</svg>' +
+                            '<div class="worker-status-indicator ' + status + '"></div>' +
+                        '</div>' +
+                        '<div class="assignment-info">' +
+                            '<div class="assignment-name">' + name + ' <span class="badge badge-worker">WORKER</span></div>' +
+                            '<div class="assignment-model" id="worker-model-' + name + '">Model: ' + modelInfo + '</div>' +
+                        '</div>' +
+                    '</div>' +
+                    '<button class="btn btn-small" onclick="showSetModelModal(\'' + name + '\')">SET MODEL</button>' +
+                '</div>';
             }).join('');
             
             container.innerHTML = workerHtml;
             assignmentContainer.innerHTML = workerHtml;
         }
+        
+        function updateWorkerModelDisplay(name, model) {
+            const el = document.getElementById('worker-model-' + name);
+            if (el) {
+                el.textContent = 'Model: ' + model;
+            }
+        }
 
-        // Backup & Reset
         async function createBackup() {
             try {
                 const providersData = await apiCall('GET', '/v1/ai/providers');
@@ -1062,8 +1216,9 @@
             
             try {
                 if (data.providers) {
-                    for (const p of (data.providers.data || data.providers || [])) {
-                        await apiCall('POST', '/v1/ai/providers', p);
+                    const providerList = data.providers.data || data.providers || [];
+                    for (let i = 0; i < providerList.length; i++) {
+                        await apiCall('POST', '/v1/ai/providers', providerList[i]);
                     }
                 }
                 
@@ -1075,7 +1230,6 @@
             }
         }
 
-        // Monitor
         async function refreshMonitor() {
             const container = document.getElementById('monitor-content');
             const preview = document.getElementById('monitor-preview');
@@ -1091,13 +1245,13 @@
                     { title: 'ACTIVE CONN', value: data.connections || 0, unit: '', bar: 0 }
                 ];
                 
-                const html = metrics.map(m => `
-                    <div class="monitor-card">
-                        <div class="monitor-title">${m.title}</div>
-                        <div class="monitor-value">${m.value}${m.unit}</div>
-                        ${m.bar ? `<div class="monitor-bar"><div class="monitor-bar-fill" style="width: ${m.bar}%"></div></div>` : ''}
-                    </div>
-                `).join('');
+                const html = metrics.map(function(m) {
+                    return '<div class="monitor-card">' +
+                        '<div class="monitor-title">' + m.title + '</div>' +
+                        '<div class="monitor-value">' + m.value + m.unit + '</div>' +
+                        (m.bar ? '<div class="monitor-bar"><div class="monitor-bar-fill" style="width: ' + m.bar + '%"></div></div>' : '') +
+                    '</div>';
+                }).join('');
                 
                 container.innerHTML = html;
                 preview.innerHTML = html;
@@ -1107,7 +1261,6 @@
             }
         }
 
-        // Status Check
         async function checkStatus() {
             document.getElementById('status-higress').textContent = 'CHECKING...';
             document.getElementById('status-manager').textContent = 'CHECKING...';
@@ -1115,23 +1268,35 @@
             try {
                 const higressRes = await apiCall('GET', '/v1/domains');
                 document.getElementById('status-higress').textContent = higressRes.ok ? 'ONLINE' : 'OFFLINE';
-                document.getElementById('status-higress').className = `status-value ${higressRes.ok ? 'status-online' : 'status-offline'}`;
+                document.getElementById('status-higress').className = 'status-value ' + (higressRes.ok ? 'status-online' : 'status-offline');
             } catch (e) {
                 document.getElementById('status-higress').textContent = 'OFFLINE';
                 document.getElementById('status-higress').className = 'status-value status-offline';
             }
             
             try {
-                const managerRes = await fetch('http://127.0.0.1:18888', { method: 'HEAD' });
-                document.getElementById('status-manager').textContent = managerRes.ok ? 'ONLINE' : 'OFFLINE';
-                document.getElementById('status-manager').className = `status-value ${managerRes.ok ? 'status-online' : 'status-offline'}`;
+                const routesRes = await apiCall('GET', '/v1/ai/routes');
+                if (routesRes.ok) {
+                    const routesData = await routesRes.json();
+                    const allRoutes = routesData.data || routesData || [];
+                    const aiRoutes = allRoutes.filter(function(r) { return r.name && r.name.startsWith('ai-route-'); });
+                    if (aiRoutes.length > 0) {
+                        document.getElementById('status-manager').textContent = 'ONLINE (' + aiRoutes.length + ' routes)';
+                        document.getElementById('status-manager').className = 'status-value status-online';
+                    } else {
+                        document.getElementById('status-manager').textContent = 'NO ROUTES';
+                        document.getElementById('status-manager').className = 'status-value status-warning';
+                    }
+                } else {
+                    document.getElementById('status-manager').textContent = 'OFFLINE';
+                    document.getElementById('status-manager').className = 'status-value status-offline';
+                }
             } catch (e) {
                 document.getElementById('status-manager').textContent = 'OFFLINE';
                 document.getElementById('status-manager').className = 'status-value status-offline';
             }
         }
 
-        // Refresh All
         async function refreshAll() {
             await Promise.all([
                 refreshProviders(),
@@ -1143,9 +1308,8 @@
             showToast('REFRESHED', 'success');
         }
 
-        // Tab switching
-        document.querySelectorAll('.tab').forEach(tab => {
-            tab.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach(function(tab) {
+            tab.addEventListener('click', function() {
                 const tabName = tab.dataset.tab;
                 switchTab(tabName);
                 
@@ -1155,8 +1319,7 @@
             });
         });
 
-        // Initialize
-        document.addEventListener('DOMContentLoaded', () => {
+        document.addEventListener('DOMContentLoaded', function() {
             const savedTheme = localStorage.getItem('ai-gateway-theme') || 'pixel';
             setTheme(savedTheme);
             
@@ -1166,7 +1329,7 @@
                 document.getElementById('last-backup-time').textContent = new Date(data.timestamp).toLocaleTimeString();
             }
             
-            login().then(() => {
+            login().then(function() {
                 refreshAll();
             });
         });
