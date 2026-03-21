@@ -21,149 +21,170 @@ start_server() {
 
     log "Starting monitor server on port ${MONITOR_PORT}..."
     
-    cat > /tmp/monitor-api.sh << 'SERVERSCRIPT'
-#!/bin/bash
-# Simple HTTP server using netcat
+    python3 << 'PYTHON_SCRIPT' > "${LOG_FILE}" 2>&1 &
+import http.server
+import json
+import os
+import subprocess
+import socketserver
+from datetime import datetime
+from urllib.parse import urlparse, parse_qs
 
-PORT="${MONITOR_PORT:-18080}"
-LOG_FILE="/tmp/monitor-server.log"
+PORT = int(os.environ.get('MONITOR_PORT', 18080))
+AGENTS_DIR = '/root/hiclaw-fs/agents'
 
-log() {
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >> "$LOG_FILE"
-}
-
-get_metrics() {
-    local cpu_usage=$(top -bn1 2>/dev/null | grep "Cpu(s)" | sed 's/.*, *\([0-9.]*\)%* id.*/\1/' | awk '{print 100 - $1}' | cut -d. -f1 2>/dev/null || echo "0")
-    local mem_usage=$(free 2>/dev/null | grep Mem | awk '{print int($3/$2 * 100)}' 2>/dev/null || echo "0")
-    local connections=$(netstat -an 2>/dev/null | grep -c ESTABLISHED 2>/dev/null || echo "0")
-    local rpm=$(cat /tmp/rpm-counter 2>/dev/null || echo "0")
+class MonitorHandler(http.server.BaseHTTPRequestHandler):
+    def log_message(self, format, *args):
+        pass
     
-    local json="{"
-    json+="\"cpu\":${cpu_usage},"
-    json+="\"memory\":${mem_usage},"
-    json+="\"connections\":${connections},"
-    json+="\"rpm\":${rpm},"
-    json+="\"timestamp\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\""
-    json+="}"
+    def send_json(self, data, status=200):
+        self.send_response(status)
+        self.send_header('Content-Type', 'application/json')
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+        self.end_headers()
+        self.wfile.write(json.dumps(data).encode())
     
-    echo -e "HTTP/1.1 200 OK\r\nAccess-Control-Allow-Origin: *\r\nContent-Type: application/json\r\n\r\n${json}"
-}
-
-reload_config() {
-    local body="$1"
-    local target=$(echo "$body" | jq -r '.target // "manager"' 2>/dev/null)
+    def do_OPTIONS(self):
+        self.send_response(200)
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+        self.end_headers()
     
-    if [ "$target" = "manager" ]; then
-        local openclaw_pid=$(pgrep -f "openclaw.*manager" 2>/dev/null | head -1)
-        if [ -n "$openclaw_pid" ]; then
-            kill -HUP "$openclaw_pid" 2>/dev/null || true
-        fi
+    def do_GET(self):
+        path = urlparse(self.path).path
         
-        curl -s -X POST "http://127.0.0.1:18799/api/reload" 2>/dev/null || true
+        if path == '/ni_status/metrics':
+            self.get_metrics()
+        elif path == '/ni_status/health':
+            self.send_json({'status': 'healthy'})
+        elif path == '/ni_status/assignment/manager':
+            self.get_assignment('manager')
+        elif path.startswith('/ni_status/assignment/workers/'):
+            worker = path.split('/')[-1]
+            self.get_assignment(worker)
+        else:
+            self.send_json({'error': 'Not found'}, 404)
+    
+    def do_POST(self):
+        path = urlparse(self.path).path
+        content_length = int(self.headers.get('Content-Length', 0))
+        body = self.rfile.read(content_length).decode() if content_length > 0 else '{}'
         
-        echo -e "HTTP/1.1 200 OK\r\nAccess-Control-Allow-Origin: *\r\nContent-Type: application/json\r\n\r\n{\"status\":\"reloaded\",\"target\":\"manager\"}"
-    else
-        echo -e "HTTP/1.1 200 OK\r\nAccess-Control-Allow-Origin: *\r\nContent-Type: application/json\r\n\r\n{\"status\":\"notified\",\"target\":\"$target\"}"
-    fi
-}
+        try:
+            data = json.loads(body)
+        except:
+            data = {}
+        
+        if path == '/ni_status/reload':
+            self.reload_config(data)
+        else:
+            self.send_json({'error': 'Not found'}, 404)
+    
+    def do_PUT(self):
+        path = urlparse(self.path).path
+        content_length = int(self.headers.get('Content-Length', 0))
+        body = self.rfile.read(content_length).decode() if content_length > 0 else '{}'
+        
+        try:
+            data = json.loads(body)
+        except:
+            self.send_json({'error': 'Invalid JSON'}, 400)
+            return
+        
+        if path == '/ni_status/assignment/manager':
+            self.set_assignment('manager', data)
+        elif path.startswith('/ni_status/assignment/workers/'):
+            worker = path.split('/')[-1]
+            self.set_assignment(worker, data)
+        else:
+            self.send_json({'error': 'Not found'}, 404)
+    
+    def get_metrics(self):
+        try:
+            cpu = subprocess.check_output(
+                "top -bn1 | grep 'Cpu(s)' | awk '{print $2}' | cut -d'%' -f1",
+                shell=True, text=True
+            ).strip() or '0'
+            cpu = float(cpu) if cpu.replace('.','').isdigit() else 0
+        except:
+            cpu = 0
+        
+        try:
+            mem_info = subprocess.check_output('free | grep Mem', shell=True, text=True).split()
+            mem = int(int(mem_info[2]) / int(mem_info[1]) * 100)
+        except:
+            mem = 0
+        
+        try:
+            connections = int(subprocess.check_output(
+                'netstat -an | grep -c ESTABLISHED', shell=True, text=True
+            ))
+        except:
+            connections = 0
+        
+        try:
+            rpm = int(open('/tmp/rpm-counter').read())
+        except:
+            rpm = 0
+        
+        self.send_json({
+            'cpu': int(cpu),
+            'memory': mem,
+            'connections': connections,
+            'rpm': rpm,
+            'timestamp': datetime.utcnow().isoformat() + 'Z'
+        })
+    
+    def reload_config(self, data):
+        target = data.get('target', 'manager')
+        
+        if target == 'manager':
+            try:
+                subprocess.run(['pkill', '-HUP', '-f', 'openclaw.*manager'], check=False)
+            except:
+                pass
+            
+            try:
+                subprocess.run(['curl', '-s', '-X', 'POST', 'http://127.0.0.1:18799/api/reload'], check=False)
+            except:
+                pass
+        
+        self.send_json({'status': 'reloaded', 'target': target})
+    
+    def get_assignment(self, name):
+        model_file = os.path.join(AGENTS_DIR, name, 'model.json')
+        
+        if os.path.exists(model_file):
+            with open(model_file) as f:
+                self.send_json(json.load(f))
+        else:
+            self.send_json({'provider': 'default', 'model': 'default'})
+    
+    def set_assignment(self, name, data):
+        model_dir = os.path.join(AGENTS_DIR, name)
+        os.makedirs(model_dir, exist_ok=True)
+        
+        model_file = os.path.join(model_dir, 'model.json')
+        data['updatedAt'] = datetime.utcnow().isoformat() + 'Z'
+        
+        with open(model_file, 'w') as f:
+            json.dump(data, f, indent=2)
+        
+        self.send_json({'status': 'saved', 'name': name})
 
-handle_assignment() {
-    local method="$1"
-    local path="$2"
-    local body="$3"
-    
-    local cors_headers="Access-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, PUT, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type"
-    
-    if [ "$method" = "OPTIONS" ]; then
-        echo -e "HTTP/1.1 200 OK\r\n${cors_headers}\r\nContent-Length: 0\r\n\r\n"
-        return
-    fi
-    
-    local entity=""
-    local name=""
-    
-    if [[ "$path" == /ni_status/assignment/manager* ]]; then
-        entity="manager"
-        name="manager"
-    elif [[ "$path" == /ni_status/assignment/workers/* ]]; then
-        entity="worker"
-        name=$(echo "$path" | sed 's|/ni_status/assignment/workers/||' | cut -d'/' -f1)
-    fi
-    
-    local model_file="/root/hiclaw-fs/agents/${name}/model.json"
-    
-    if [ "$method" = "GET" ]; then
-        if [ -f "$model_file" ]; then
-            local content=$(cat "$model_file")
-            echo -e "HTTP/1.1 200 OK\r\n${cors_headers}\r\nContent-Type: application/json\r\n\r\n${content}"
-        else
-            echo -e "HTTP/1.1 200 OK\r\n${cors_headers}\r\nContent-Type: application/json\r\n\r\n{\"provider\":\"default\",\"model\":\"default\"}"
-        fi
-    elif [ "$method" = "PUT" ]; then
-        mkdir -p "$(dirname "$model_file")"
-        local json_body=$(echo "$body" | sed -n '/^{/,/^}/p')
-        json_body=$(echo "$json_body" | jq --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '. + {updatedAt: $ts}' 2>/dev/null || echo "$json_body")
-        echo "$json_body" > "$model_file"
-        echo -e "HTTP/1.1 200 OK\r\n${cors_headers}\r\nContent-Type: application/json\r\n\r\n{\"status\":\"saved\"}"
-    else
-        echo -e "HTTP/1.1 405 Method Not Allowed\r\n${cors_headers}\r\n\r\n"
-    fi
-}
+class ReuseAddrServer(socketserver.TCPServer):
+    allow_reuse_address = True
 
-handle_request() {
-    local request="$1"
-    local method=$(echo "$request" | head -1 | awk '{print $1}')
-    local path=$(echo "$request" | head -1 | awk '{print $2}')
-    
-    local cors_headers="Access-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type, Authorization"
-    
-    if [ "$method" = "OPTIONS" ]; then
-        echo -e "HTTP/1.1 200 OK\r\n${cors_headers}\r\nContent-Length: 0\r\n\r\n"
-        return
-    fi
-    
-    local body=$(echo "$request" | sed -n '/^\{/,$p' | head -1)
-    
-    case "$path" in
-        /ni_status/metrics)
-            get_metrics
-            ;;
-        /ni_status/reload)
-            reload_config "$body"
-            ;;
-        /ni_status/assignment/manager|/ni_status/assignment/manager/*)
-            handle_assignment "$method" "$path" "$body"
-            ;;
-        /ni_status/assignment/workers/*)
-            handle_assignment "$method" "$path" "$body"
-            ;;
-        /ni_status/health)
-            echo -e "HTTP/1.1 200 OK\r\n${cors_headers}\r\nContent-Type: application/json\r\n\r\n{\"status\":\"healthy\"}"
-            ;;
-        *)
-            echo -e "HTTP/1.1 404 Not Found\r\n${cors_headers}\r\nContent-Type: application/json\r\n\r\n{\"error\":\"Not found\"}"
-            ;;
-    esac
-}
+with ReuseAddrServer(('', PORT), MonitorHandler) as httpd:
+    print(f'Monitor server running on port {PORT}')
+    httpd.serve_forever()
+PYTHON_SCRIPT
 
-# Main loop using socat
-export MONITOR_PORT
-export -f log get_metrics reload_config handle_assignment handle_request
-
-if command -v socat >/dev/null 2>&1; then
-    socat TCP-LISTEN:${PORT},fork,reuseaddr SYSTEM:'bash -c '\''read -r line; request="$line"; while read -r line && [ -n "$line" ]; do request+=$'"'"'\n'"'"'$line; done; request+=$'"'"'\n'"'"'; while read -t 0.1 -r line; do request+=$'"'"'\n'"'"'$line; done; handle_request "$request"'\''' 2>>"$LOG_FILE"
-else
-    log "ERROR: socat not installed"
-    exit 1
-fi
-SERVERSCRIPT
-    
-    chmod +x /tmp/monitor-api.sh
-    
-    nohup bash /tmp/monitor-api.sh > "${LOG_FILE}" 2>&1 &
     local pid=$!
     echo $pid > "${PID_FILE}"
-    
     log "Monitor server started (PID: $pid)"
 }
 
