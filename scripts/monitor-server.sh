@@ -342,9 +342,6 @@ class MonitorHandler(http.server.BaseHTTPRequestHandler):
         route_name = 'ai-route-' + provider_name
         route_path = '/' + provider_name
         
-        route_data, _ = higress_api('GET', '/v1/ai/routes/' + route_name)
-        route_exists = route_data and not route_data.get('error')
-        
         new_route = {
             'name': route_name,
             'domains': ['ai-gateway.hiclaw.io'],
@@ -353,12 +350,8 @@ class MonitorHandler(http.server.BaseHTTPRequestHandler):
             'upstreams': [{'provider': provider_name, 'weight': 100, 'modelMapping': {}}]
         }
         
-        if route_exists:
-            higress_api('PUT', '/v1/ai/routes/' + route_name, new_route)
-            print('[DEBUG] Updated existing route for provider: ' + provider_name)
-        else:
-            higress_api('POST', '/v1/ai/routes', new_route)
-            print('[DEBUG] Created new route for provider: ' + provider_name)
+        route_result, route_err = higress_api('PUT', '/v1/ai/routes/' + route_name, new_route)
+        print('[DEBUG] create_provider: PUT route result: err=' + str(route_err) + ', result=' + str(route_result)[:200] if route_result else 'None')
         
         self.send_json({'success': True, 'provider': provider_name, 'routePath': route_path, 'routeUpdated': True})
     
@@ -368,20 +361,20 @@ class MonitorHandler(http.server.BaseHTTPRequestHandler):
             self.send_json({'success': False, 'error': 'Provider name required'}, 400)
             return
         
-        provider_data, err = higress_api('GET', '/v1/ai/providers/' + provider_name)
-        data_str = str(provider_data)[:200] if provider_data else 'None'
-        print('[DEBUG] test_provider GET result: err=' + str(err) + ', data=' + data_str)
+        providers_data, err = higress_api('GET', '/v1/ai/providers')
         if err:
-            self.send_json({'success': False, 'error': 'Failed to get provider: ' + err}, 500)
+            self.send_json({'success': False, 'error': 'Failed to get providers: ' + err}, 500)
             return
         
-        if not provider_data:
+        providers = providers_data.get('data', providers_data) if providers_data else []
+        provider = None
+        for p in providers:
+            if p.get('name') == provider_name:
+                provider = p
+                break
+        
+        if not provider:
             self.send_json({'success': False, 'error': 'Provider not found'}, 404)
-            return
-        
-        provider = provider_data.get('data', provider_data)
-        if not provider or not isinstance(provider, dict):
-            self.send_json({'success': False, 'error': 'Invalid provider data'}, 500)
             return
         
         tokens = provider.get('tokens', [])
@@ -397,15 +390,14 @@ class MonitorHandler(http.server.BaseHTTPRequestHandler):
         if is_custom:
             base_url = raw_configs.get('openaiCustomUrl', '')
             if not base_url:
-                svc_name = raw_configs.get('openaiCustomServiceName', provider_name + '.dns')
-                svc_port = raw_configs.get('openaiCustomServicePort', 443)
-                base_url = 'https://' + svc_name + ':' + str(svc_port) + '/v1'
+                base_url = 'https://' + provider_name + '.dns:443/v1'
         else:
-            base_url = 'http://ai-gateway.hiclaw.io:8080/v1'
+            base_url = 'http://ai-gateway.hiclaw.io:8080/' + provider_name + '/v1'
         
         test_url = base_url.rstrip('/') + '/models'
         
         cmd = 'curl -s -m 10 -H "Authorization: Bearer ' + api_key + '" "' + test_url + '"'
+        print('[DEBUG] test_provider: testing URL=' + test_url)
         result, err = run_cmd(cmd)
         
         if err:
@@ -415,6 +407,8 @@ class MonitorHandler(http.server.BaseHTTPRequestHandler):
         if not result:
             self.send_json({'success': False, 'error': 'Empty response from provider'}, 500)
             return
+        
+        print('[DEBUG] test_provider: response=' + str(result)[:200])
         
         try:
             response = json.loads(result)
@@ -452,13 +446,6 @@ class MonitorHandler(http.server.BaseHTTPRequestHandler):
             print('[DEBUG] Creating/updating AI route for provider: ' + provider)
             print('[DEBUG] Route name: ' + route_name + ', path: ' + route_path)
             
-            route_data, err = higress_api('GET', '/v1/ai/routes/' + route_name)
-            print('[DEBUG] GET route result: err=' + str(err))
-            
-            route = None
-            if route_data and not err:
-                route = route_data.get('data', route_data)
-            
             new_route = {
                 'name': route_name,
                 'domains': ['ai-gateway.hiclaw.io'],
@@ -467,12 +454,8 @@ class MonitorHandler(http.server.BaseHTTPRequestHandler):
                 'upstreams': [{'provider': provider, 'weight': 100, 'modelMapping': {}}]
             }
             
-            if route:
-                print('[DEBUG] Updating existing route')
-                result, err = higress_api('PUT', '/v1/ai/routes/' + route_name, new_route)
-            else:
-                print('[DEBUG] Creating new route')
-                result, err = higress_api('POST', '/v1/ai/routes', new_route)
+            result, err = higress_api('PUT', '/v1/ai/routes/' + route_name, new_route)
+            print('[DEBUG] PUT route result: err=' + str(err) + ', result=' + str(result)[:200] if result else 'None')
             
             if err:
                 errors.append('Failed to create/update AI route: ' + str(err))
