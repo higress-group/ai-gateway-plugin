@@ -104,20 +104,37 @@ log ""
 log "Step 2: Configuring Higress..."
 higress_login
 
+# Add monitor service source (for /ni_status API)
 higress_api POST /v1/service-sources "Adding monitor service source" \
     '{"name":"monitor","type":"static","domain":"127.0.0.1:'"${MONITOR_PORT}"'","port":'"${MONITOR_PORT}"'}'
 
+# Add monitor route for /ni_status API (internal use)
 higress_api POST /v1/routes "Adding monitor route" \
     '{"name":"ai-gateway-monitor","domains":[],"path":{"matchType":"PRE","matchValue":"/ni_status"},"services":[{"name":"monitor.static","port":'"${MONITOR_PORT}"',"weight":100}]}'
 
 higress_api PUT /v1/routes/ai-gateway-monitor/plugin-instances/key-auth "Enabling key-auth on monitor route" \
     '{"enabled":true,"rawConfigurations":"consumers:\n  - '"${HICLAW_MANAGER_GATEWAY_KEY}"'"}'
 
+# Add Higress Manager UI route for /agm path (LAN/internet access)
+# This allows access via http://<server-ip>:8080/agm/
+higress_api POST /v1/routes "Adding Higress Manager UI route (/agm)" \
+    '{"name":"higress-manager-agm","domains":[],"path":{"matchType":"PRE","matchValue":"/agm"},"services":[{"name":"higress-manager.static","port":18900,"weight":100}],"rewrite":{"enabled":true,"rewriteType":"PREFIX","matchValue":"/agm","replacement":"/"}}'
+
+# Enable basic-auth on /agm route
+higress_api PUT /v1/routes/higress-manager-agm/plugin-instances/basic-auth "Enabling basic-auth on /agm route" \
+    '{"version":null,"scope":"ROUTE","target":"higress-manager-agm","targets":{"ROUTE":"higress-manager-agm"},"pluginName":"basic-auth","pluginVersion":null,"internal":false,"enabled":true,"rawConfigurations":"consumers:\n  - name: admin\n    credential: '"${HICLAW_ADMIN_USER:-admin}"':'"${HICLAW_ADMIN_PASSWORD}"'"}'
+
 log ""
 log "=========================================="
 log "${SKILL_NAME} skill installed successfully!"
 log "=========================================="
 log ""
-log "Monitor API: http://aigw-local.hiclaw.io:8080/ni_status/"
-log "Web UI:      http://manager-local.hiclaw.io:8080/"
+log "Access URLs:"
+log "  Monitor API:  http://aigw-local.hiclaw.io:8080/ni_status/"
+log "  Web UI (LAN): http://<your-server-ip>:8080/agm/"
+log "  Web UI (dom): http://manager-local.hiclaw.io:8080/"
+log ""
+log "Authentication:"
+log "  Username: ${HICLAW_ADMIN_USER:-admin}"
+log "  Password: <your-admin-password>"
 log ""

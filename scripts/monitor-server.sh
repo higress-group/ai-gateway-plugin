@@ -424,6 +424,170 @@ class MonitorHandler(http.server.BaseHTTPRequestHandler):
             else:
                 self.send_json({'success': False, 'error': 'Invalid response'}, 500)
     
+    def manage_ai_routes(self, provider, model):
+        """
+        Manage AI routes with hybrid mode:
+        - Single provider: use default-ai-route
+        - Multiple providers: create separate routes with modelPredicates
+        
+        Returns: (success, error_message)
+        """
+        print('[DEBUG] Managing AI routes for provider: ' + provider + ', model: ' + model)
+        
+        # Get all existing AI routes
+        routes_resp, err = higress_api('GET', '/v1/ai/routes')
+        if err or not routes_resp:
+            return False, 'Failed to get AI routes: ' + str(err)
+        
+        # Parse routes from response wrapper
+        routes_data = routes_resp.get('data', routes_resp) if isinstance(routes_resp, dict) else []
+        if isinstance(routes_data, dict) and 'items' in routes_data:
+            routes_list = routes_data['items']
+        elif isinstance(routes_data, list):
+            routes_list = routes_data
+        else:
+            routes_list = [routes_data] if routes_data else []
+        
+        # Filter AI routes (exclude MCP routes)
+        ai_routes = [r for r in routes_list if r.get('name', '').endswith('-ai-route')]
+        
+        print('[DEBUG] Found ' + str(len(ai_routes)) + ' AI routes')
+        
+        # Check if we need hybrid mode (multiple providers in use)
+        existing_providers = set()
+        for route in ai_routes:
+            if 'upstreams' in route and len(route['upstreams']) > 0:
+                existing_providers.add(route['upstreams'][0].get('provider', ''))
+        
+        print('[DEBUG] Existing providers: ' + str(existing_providers))
+        
+        # If this provider already has a route, just use it
+        for route in ai_routes:
+            if route.get('upstreams', [{}])[0].get('provider') == provider:
+                print('[DEBUG] Route for provider ' + provider + ' already exists: ' + route.get('name'))
+                return True, None  # Route exists, no action needed
+        
+        # If no routes exist or only default exists, stay in single-route mode
+        if len(ai_routes) <= 1:
+            # Update or create default-ai-route
+            return self.update_default_route(provider)
+        
+        # Multiple routes exist - need to create a new route for this provider
+        return self.create_provider_route(provider, model)
+    
+    def update_default_route(self, provider):
+        """Update default-ai-route to use the specified provider"""
+        route_name = 'default-ai-route'
+        
+        print('[DEBUG] Updating default AI route to use provider: ' + provider)
+        
+        current_route, err = higress_api('GET', '/v1/ai/routes/' + route_name)
+        if err or not current_route:
+            # Create new default route if it doesn't exist
+            print('[DEBUG] Default route not found, creating...')
+            return self.create_default_route(provider)
+        
+        route_data = current_route.get('data', current_route)
+        if not route_data:
+            return False, 'Invalid route response'
+        
+        # Remove modelPredicates to make it catch-all
+        if 'modelPredicates' in route_data:
+            del route_data['modelPredicates']
+        
+        # Update provider in upstreams[0]
+        if 'upstreams' in route_data and len(route_data['upstreams']) > 0:
+            route_data['upstreams'][0]['provider'] = provider
+        else:
+            route_data['upstreams'] = [{'provider': provider, 'weight': 100, 'modelMapping': {}}]
+        
+        # Ensure headerControl is set
+        if 'headerControl' not in route_data:
+            route_data['headerControl'] = {
+                'enabled': True,
+                'request': {'add': [], 'set': [], 'remove': []},
+                'response': {'add': [], 'set': [], 'remove': []}
+            }
+        
+        result, err = higress_api('PUT', '/v1/ai/routes/' + route_name, route_data)
+        if err:
+            return False, 'Failed to update default route: ' + str(err)
+        
+        print('[DEBUG] Default route updated successfully')
+        return True, None
+    
+    def create_default_route(self, provider):
+        """Create default-ai-route"""
+        ai_gateway_domain = os.environ.get('HICLAW_AI_GATEWAY_DOMAIN', 'aigw-local.hiclaw.io')
+        hiclaw_version = os.environ.get('HICLAW_VERSION', 'latest')
+        
+        route_body = {
+            'name': 'default-ai-route',
+            'domains': [ai_gateway_domain],
+            'pathPredicate': {'matchType': 'PRE', 'matchValue': '/', 'caseSensitive': False},
+            'upstreams': [{'provider': provider, 'weight': 100, 'modelMapping': {}}],
+            'authConfig': {
+                'enabled': True,
+                'allowedCredentialTypes': ['key-auth'],
+                'allowedConsumers': ['manager']
+            },
+            'headerControl': {
+                'enabled': True,
+                'request': {
+                    'add': [{'key': 'user-agent', 'value': 'HiClaw/' + hiclaw_version}],
+                    'set': [],
+                    'remove': []
+                },
+                'response': {'add': [], 'set': [], 'remove': []}
+            }
+        }
+        
+        result, err = higress_api('POST', '/v1/ai/routes', route_body)
+        if err:
+            return False, 'Failed to create default route: ' + str(err)
+        
+        print('[DEBUG] Default route created successfully')
+        return True, None
+    
+    def create_provider_route(self, provider, model):
+        """Create a new AI route for a specific provider with modelPredicates"""
+        ai_gateway_domain = os.environ.get('HICLAW_AI_GATEWAY_DOMAIN', 'aigw-local.hiclaw.io')
+        hiclaw_version = os.environ.get('HICLAW_VERSION', 'latest')
+        
+        route_name = provider + '-ai-route'
+        
+        # Use model prefix as predicate
+        model_prefix = provider
+        
+        route_body = {
+            'name': route_name,
+            'domains': [ai_gateway_domain],
+            'pathPredicate': {'matchType': 'PRE', 'matchValue': '/', 'caseSensitive': False},
+            'upstreams': [{'provider': provider, 'weight': 100, 'modelMapping': {}}],
+            'modelPredicates': [{'matchType': 'PRE', 'matchValue': model_prefix}],
+            'authConfig': {
+                'enabled': True,
+                'allowedCredentialTypes': ['key-auth'],
+                'allowedConsumers': ['manager']
+            },
+            'headerControl': {
+                'enabled': True,
+                'request': {
+                    'add': [{'key': 'user-agent', 'value': 'HiClaw/' + hiclaw_version}],
+                    'set': [],
+                    'remove': []
+                },
+                'response': {'add': [], 'set': [], 'remove': []}
+            }
+        }
+        
+        result, err = higress_api('POST', '/v1/ai/routes', route_body)
+        if err:
+            return False, 'Failed to create provider route: ' + str(err)
+        
+        print('[DEBUG] Provider route created: ' + route_name + ' with modelPredicate: ' + model_prefix)
+        return True, None
+    
     def set_model(self, data):
         target = data.get('target', 'manager')
         provider = data.get('provider')
@@ -440,36 +604,129 @@ class MonitorHandler(http.server.BaseHTTPRequestHandler):
         route_updated = False
         
         if target == 'manager':
-            route_name = 'ai-route-' + provider
-            route_path = '/' + provider
+            # Test model connectivity first
+            print('[DEBUG] Testing model connectivity before applying...')
+            test_result = self.test_model_connectivity(provider, model)
+            if not test_result.get('success', False):
+                self.send_json({
+                    'success': False, 
+                    'error': 'Model not reachable: ' + str(test_result.get('error', 'Unknown error')),
+                    'hint': 'Ask admin to create AI Provider in Higress Console first'
+                })
+                return
             
-            print('[DEBUG] Creating/updating AI route for provider: ' + provider)
-            print('[DEBUG] Route name: ' + route_name + ', path: ' + route_path)
-            
-            new_route = {
-                'name': route_name,
-                'domains': ['ai-gateway.hiclaw.io'],
-                'pathPredicate': {'matchType': 'PRE', 'matchValue': route_path, 'caseSensitive': False},
-                'authConfig': {'enabled': True, 'allowedCredentialTypes': ['key-auth'], 'allowedConsumers': ['manager']},
-                'upstreams': [{'provider': provider, 'weight': 100, 'modelMapping': {}}]
-            }
-            
-            result, err = higress_api('PUT', '/v1/ai/routes/' + route_name, new_route)
-            print('[DEBUG] PUT route result: err=' + str(err) + ', result=' + str(result)[:200] if result else 'None')
-            
-            if err:
-                errors.append('Failed to create/update AI route: ' + str(err))
+            # Manage AI routes with hybrid mode
+            print('[DEBUG] Managing AI routes...')
+            route_success, route_error = self.manage_ai_routes(provider, model)
+            if not route_success:
+                errors.append(route_error)
             else:
                 route_updated = True
-                print('[DEBUG] Route created/updated successfully')
+                print('[DEBUG] AI routes managed successfully')
             
+            # Update OpenClaw config using the standard format
             if os.path.exists(OPENCLAW_CONFIG):
                 try:
                     with open(OPENCLAW_CONFIG) as f:
                         config = json.load(f)
                     
-                    gateway_provider_name = 'hiclaw-' + provider
+                    # Use standard hiclaw-gateway provider format
+                    gateway_provider_name = 'hiclaw-gateway'
+                    
+                    # Ensure models.providers structure exists
+                    if 'models' not in config:
+                        config['models'] = {'mode': 'merge', 'providers': {}}
+                    if 'providers' not in config['models']:
+                        config['models']['providers'] = {}
+                    if gateway_provider_name not in config['models']['providers']:
+                        config['models']['providers'][gateway_provider_name] = {
+                            'baseUrl': 'http://ai-gateway.hiclaw.io:8080/v1',
+                            'apiKey': os.environ.get('MANAGER_GATEWAY_KEY') or os.environ.get('HICLAW_MANAGER_GATEWAY_KEY', ''),
+                            'api': 'openai-completions',
+                            'models': []
+                        }
+                    
+                    models_list = config['models']['providers'][gateway_provider_name].get('models', [])
+                    model_exists = any(m.get('id') == model for m in models_list)
+                    
+                    if not model_exists:
+                        # Add new model to the list
+                        models_list.append({
+                            'id': model,
+                            'name': model,
+                            'reasoning': reasoning,
+                            'contextWindow': context_window,
+                            'maxTokens': max_tokens,
+                            'input': ['text', 'image'] if reasoning else ['text']
+                        })
+                        config['models']['providers'][gateway_provider_name]['models'] = models_list
+                        print('[DEBUG] Added new model to openclaw.json: ' + model)
+                    
+                    # Set as primary model
                     model_id = gateway_provider_name + '/' + model
+                    
+                    if 'agents' not in config:
+                        config['agents'] = {'defaults': {}}
+                    if 'defaults' not in config['agents']:
+                        config['agents']['defaults'] = {}
+                    if 'model' not in config['agents']['defaults']:
+                        config['agents']['defaults']['model'] = {}
+                    
+                    config['agents']['defaults']['model']['primary'] = model_id
+                    
+                    # Add to agents.defaults.models alias map
+                    if 'models' not in config['agents']['defaults']:
+                        config['agents']['defaults']['models'] = {}
+                    config['agents']['defaults']['models'][model_id] = {'alias': model}
+                    
+                    with open(OPENCLAW_CONFIG, 'w') as f:
+                        json.dump(config, f, indent=2)
+                    
+                    # Trigger OpenClaw reload
+                    subprocess.run(['curl', '-s', '-X', 'POST', 'http://127.0.0.1:18799/api/reload'], check=False, timeout=5)
+                    print('[DEBUG] OpenClaw config reloaded')
+                    
+                except Exception as e:
+                    errors.append('Failed to update OpenClaw config: ' + str(e))
+            else:
+                errors.append('OpenClaw config not found: ' + OPENCLAW_CONFIG)
+            
+            # Store model assignment for persistence
+            model_dir = os.path.join(AGENTS_DIR, 'manager')
+            os.makedirs(model_dir, exist_ok=True)
+            with open(os.path.join(model_dir, 'model.json'), 'w') as f:
+                json.dump({
+                    'provider': provider,
+                    'model': model,
+                    'contextWindow': context_window,
+                    'maxTokens': max_tokens,
+                    'reasoning': reasoning,
+                    'updatedAt': datetime.utcnow().isoformat() + 'Z'
+                }, f, indent=2)
+        else:
+            # Worker model assignment
+            worker_dir = os.path.join(AGENTS_DIR, target)
+            os.makedirs(worker_dir, exist_ok=True)
+            
+            # Store in model.json
+            with open(os.path.join(worker_dir, 'model.json'), 'w') as f:
+                json.dump({
+                    'provider': provider,
+                    'model': model,
+                    'contextWindow': context_window,
+                    'maxTokens': max_tokens,
+                    'reasoning': reasoning,
+                    'updatedAt': datetime.utcnow().isoformat() + 'Z'
+                }, f, indent=2)
+            
+            # Update Worker's openclaw.json in MinIO
+            worker_openclaw = os.path.join(worker_dir, 'openclaw.json')
+            if os.path.exists(worker_openclaw):
+                try:
+                    with open(worker_openclaw) as f:
+                        config = json.load(f)
+                    
+                    gateway_provider_name = 'hiclaw-gateway'
                     
                     if 'models' not in config:
                         config['models'] = {'mode': 'merge', 'providers': {}}
@@ -477,13 +734,11 @@ class MonitorHandler(http.server.BaseHTTPRequestHandler):
                         config['models']['providers'] = {}
                     if gateway_provider_name not in config['models']['providers']:
                         config['models']['providers'][gateway_provider_name] = {
-                            'baseUrl': 'http://ai-gateway.hiclaw.io:8080' + route_path + '/v1',
-                            'apiKey': os.environ.get('MANAGER_GATEWAY_KEY') or os.environ.get('HICLAW_MANAGER_GATEWAY_KEY', ''),
+                            'baseUrl': 'http://ai-gateway.hiclaw.io:8080/v1',
+                            'apiKey': '',
                             'api': 'openai-completions',
                             'models': []
                         }
-                    else:
-                        config['models']['providers'][gateway_provider_name]['baseUrl'] = 'http://ai-gateway.hiclaw.io:8080' + route_path + '/v1'
                     
                     models_list = config['models']['providers'][gateway_provider_name].get('models', [])
                     model_exists = any(m.get('id') == model for m in models_list)
@@ -499,54 +754,88 @@ class MonitorHandler(http.server.BaseHTTPRequestHandler):
                         })
                         config['models']['providers'][gateway_provider_name]['models'] = models_list
                     
+                    model_id = gateway_provider_name + '/' + model
                     if 'agents' not in config:
                         config['agents'] = {'defaults': {}}
                     if 'defaults' not in config['agents']:
                         config['agents']['defaults'] = {}
-                    if 'model' not in config['agents']['defaults']:
-                        config['agents']['defaults']['model'] = {}
-                    
-                    config['agents']['defaults']['model']['primary'] = model_id
-                    
                     if 'models' not in config['agents']['defaults']:
                         config['agents']['defaults']['models'] = {}
+                    
                     config['agents']['defaults']['models'][model_id] = {'alias': model}
                     
-                    with open(OPENCLAW_CONFIG, 'w') as f:
+                    with open(worker_openclaw, 'w') as f:
                         json.dump(config, f, indent=2)
                     
-                    subprocess.run(['curl', '-s', '-X', 'POST', 'http://127.0.0.1:18799/api/reload'], check=False, timeout=5)
+                    # Sync to MinIO
+                    subprocess.run(['mc', 'cp', worker_openclaw, HICLAW_FS + '/agents/' + target + '/openclaw.json'], 
+                                 check=False, capture_output=True)
+                    print('[DEBUG] Worker openclaw.json synced to MinIO')
                     
                 except Exception as e:
-                    errors.append('Failed to update OpenClaw config: ' + str(e))
-            else:
-                errors.append('OpenClaw config not found: ' + OPENCLAW_CONFIG)
-            
-            model_dir = os.path.join(AGENTS_DIR, 'manager')
-            os.makedirs(model_dir, exist_ok=True)
-            with open(os.path.join(model_dir, 'model.json'), 'w') as f:
-                json.dump({
-                    'provider': provider,
-                    'model': model,
-                    'routePath': route_path,
-                    'contextWindow': context_window,
-                    'maxTokens': max_tokens,
-                    'reasoning': reasoning,
-                    'updatedAt': datetime.utcnow().isoformat() + 'Z'
-                }, f, indent=2)
+                    errors.append('Failed to update Worker config: ' + str(e))
+        
+        if errors:
+            self.send_json({'success': False, 'errors': errors})
         else:
-            worker_dir = os.path.join(AGENTS_DIR, target)
-            os.makedirs(worker_dir, exist_ok=True)
-            
-            with open(os.path.join(worker_dir, 'model.json'), 'w') as f:
-                json.dump({
-                    'provider': provider,
-                    'model': model,
-                    'contextWindow': context_window,
-                    'maxTokens': max_tokens,
-                    'reasoning': reasoning,
-                    'updatedAt': datetime.utcnow().isoformat() + 'Z'
-                }, f, indent=2)
+            self.send_json({
+                'success': True, 
+                'target': target, 
+                'provider': provider, 
+                'model': model,
+                'routeUpdated': route_updated
+            })
+    
+    def test_model_connectivity(self, provider, model):
+        """Test if a model is reachable via the AI Gateway"""
+        # Get provider info to find API key
+        providers_data, err = higress_api('GET', '/v1/ai/providers')
+        if err:
+            return {'success': False, 'error': 'Failed to get providers: ' + err}
+        
+        providers = providers_data.get('data', providers_data) if providers_data else []
+        provider_config = None
+        for p in providers:
+            if p.get('name') == provider:
+                provider_config = p
+                break
+        
+        if not provider_config:
+            return {'success': False, 'error': 'Provider not found: ' + provider}
+        
+        tokens = provider_config.get('tokens', [])
+        if not tokens:
+            return {'success': False, 'error': 'Provider has no API key configured'}
+        
+        api_key = tokens[0] if isinstance(tokens[0], str) else (tokens[0].get('value', '') if isinstance(tokens[0], dict) else '')
+        
+        # Test the model with a simple chat completions request
+        test_url = 'http://ai-gateway.hiclaw.io:8080/v1/chat/completions'
+        test_body = {
+            'model': model,
+            'messages': [{'role': 'user', 'content': 'Hello'}],
+            'max_tokens': 1
+        }
+        
+        cmd = 'curl -s -m 10 -X POST "' + test_url + '" -H "Content-Type: application/json" -H "Authorization: Bearer ' + api_key + '" -d \'' + json.dumps(test_body) + '\''
+        print('[DEBUG] Testing model: ' + cmd[:200])
+        result, err = run_cmd(cmd)
+        
+        if err:
+            return {'success': False, 'error': 'Connection failed: ' + err}
+        
+        if not result:
+            return {'success': False, 'error': 'Empty response'}
+        
+        try:
+            response = json.loads(result)
+            if 'error' in response:
+                return {'success': False, 'error': response['error'].get('message', 'API error')}
+            return {'success': True, 'response': response}
+        except:
+            if '200' in result or 'choices' in result:
+                return {'success': True}
+            return {'success': False, 'error': 'Invalid response: ' + result[:100]}
             
             worker_config = os.path.join(HICLAW_FS, 'agents', target, 'openclaw.json')
             if os.path.exists(worker_config):

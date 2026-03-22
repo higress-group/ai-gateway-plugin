@@ -1,200 +1,144 @@
 # AI Gateway Management
 
-> 🎮 一个用于管理 Higress AI Gateway 的可视化技能插件，支持主题切换、备份重置、Worker 状态动画和实时监控。
+A skill plugin for HiClaw Manager that provides a web-based management interface for the AI Gateway.
 
-[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
-[![HiClaw](https://img.shields.io/badge/HiClaw-Compatible-green.svg)](https://github.com/higress-group/hiclaw)
+## Features
 
-## ✨ 功能特性
+- **Provider Management** — Add, remove, and configure LLM providers (Qwen, DeepSeek, OpenAI, etc.)
+- **Model Assignment** — Set default models for Manager and individual Workers
+- **Dynamic Switching** — Change models at runtime with automatic connectivity testing
+- **Pixel Art UI** — Retro-style web interface with theme switching
+- **Backup & Restore** — Automatic backups before configuration changes
 
-### 🎨 主题切换
-- **Pixel** - 经典绿色终端风格
-- **Cyber** - 霓虹粉/青赛博朋克风格
-- **Office** - 温暖棕色复古办公室风格
+## Installation
 
-### 🤖 Worker 状态动画
-像素小人头像实时显示 Worker 状态：
-- 🟢 **Idle** - 空闲等待
-- 🟡 **Busy** - 正在处理任务
-- 🔵 **Sleeping** - 休眠中
-- 🔴 **Offline** - 离线
+### As a HiClaw Skill
 
-### 💾 备份与重置
-- 所有操作前自动创建配置备份
-- 一键恢复到上次备份状态
-- 备份存储在浏览器 localStorage
-
-### 📊 Pilot-Agent 监控面板
-- CPU 使用率
-- 内存使用率
-- 每分钟请求数 (RPM)
-- 活跃连接数
-
-### ⚡ 即时生效
-- 模型设置后立即重载配置
-- 无需重启容器
-- 会话立即应用新模型
-
-## 📦 安装
-
-### 方式一：作为 HiClaw Skill 安装
-
-将此仓库克隆到 Manager 的 skills 目录：
+Copy this directory to your HiClaw Manager's skills directory:
 
 ```bash
-cd /opt/hiclaw/agent/skills/
-git clone https://github.com/nillikechatchat/ai-gateway-management.git
+cp -r ai-gateway-management /opt/hiclaw/agent/skills/
 ```
 
-运行安装脚本：
+The skill will auto-start on Manager restart.
 
-```bash
-cd ai-gateway-management
-bash scripts/install.sh
-```
+### Manual Installation
 
-安装脚本会自动：
-1. 启动 Monitor API 服务 (端口 18080)
-2. 添加 `monitor` 服务来源到 Higress
-3. 创建 `/ni_status` 路由
-4. 授权 Manager 访问监控接口
+1. Clone this repository
+2. Copy the contents to `manager/agent/skills/ai-gateway-management/` in your HiClaw installation
+3. Rebuild the Manager container
 
-### 方式二：手动安装
-
-1. 复制文件到目标位置
-2. 启动监控服务：
-   ```bash
-   bash scripts/monitor-server.sh start
-   ```
-3. 配置 Higress 路由
-
-## 🚀 使用
+## Usage
 
 ### Web UI
 
-访问管理界面：
+The management interface is accessible via multiple ways:
 
+#### 1. Domain-based Access (Default)
 ```
 http://manager-local.hiclaw.io:8080
 ```
 
-### Monitor API
-
+#### 2. Path-based Access (LAN/Internet)
 ```
-http://aigw-local.hiclaw.io:8080/ni_status/
+http://<your-server-ip>:8080/agm/
 ```
 
-### API 端点
+This allows access from LAN or internet without configuring a domain.
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/ni_status/metrics` | 获取系统指标 |
-| POST | `/ni_status/reload` | 重载配置 |
-| GET | `/ni_status/health` | 健康检查 |
-| GET | `/ni_status/assignment/manager` | 获取 Manager 模型 |
-| PUT | `/ni_status/assignment/manager` | 设置 Manager 模型 |
-| GET | `/ni_status/assignment/workers/{name}` | 获取 Worker 模型 |
-| PUT | `/ni_status/assignment/workers/{name}` | 设置 Worker 模型 |
+**Default credentials:**
+- Username: `admin` (or `HICLAW_ADMIN_USER` env var)
+- Password: Set during installation (or `HICLAW_ADMIN_PASSWORD` env var)
 
-## 📁 目录结构
+### CLI Scripts
+
+```bash
+# List all providers
+bash scripts/list-providers.sh
+
+# Create a new provider
+bash scripts/create-provider.sh --type qwen --name qwen --token "sk-xxx"
+
+# Set Manager model (with connectivity test)
+bash scripts/set-model.sh --target manager --provider qwen --model qwen3.5-plus
+
+# Set Worker model
+bash scripts/set-model.sh --target worker:alice --provider deepseek --model deepseek-chat
+
+# Get current assignment
+bash scripts/get-assignment.sh manager
+bash scripts/get-assignment.sh worker:alice
+
+# Monitor server management
+bash scripts/monitor-server.sh start
+bash scripts/monitor-server.sh stop
+bash scripts/monitor-server.sh status
+```
+
+## Directory Structure
 
 ```
 ai-gateway-management/
-├── SKILL.md                    # 技能文档（Agent 读取）
-├── README.md                   # 本文件
-├── scripts/
-│   ├── install.sh             # 安装脚本
-│   ├── monitor-server.sh      # 监控 API 服务
-│   ├── set-model.sh           # 设置模型
-│   ├── create-provider.sh     # 创建供应商
-│   ├── list-providers.sh      # 列出供应商
-│   └── get-assignment.sh      # 获取模型分配
-├── web/
-│   └── index.html             # 管理界面
-└── references/
-    └── api-reference.md       # API 参考文档
+├── SKILL.md              # Skill documentation (read by Agent)
+├── README.md             # This file (developer documentation)
+├── scripts/              # CLI scripts
+│   ├── monitor-server.sh     # Python HTTP server for API
+│   ├── list-providers.sh     # List AI providers
+│   ├── create-provider.sh    # Create new provider
+│   ├── set-model.sh          # Set model (with testing)
+│   └── get-assignment.sh     # Get current model assignment
+├── references/           # Reference documentation
+│   └── api-reference.md  # API specification
+└── web/                  # Web UI
+    └── index.html        # Single-page application
 ```
 
-## 🛠️ 脚本使用
+## Requirements
 
-### 设置模型
+- HiClaw Manager container
+- Higress AI Gateway
+- Higress Console (for provider management)
+- MinIO (for config storage)
+- mc (MinIO client)
 
-```bash
-# 设置 Manager 模型
-bash scripts/set-model.sh \
-  --target manager \
-  --provider qwen \
-  --model qwen3.5-plus
+## Architecture
 
-# 设置 Worker 模型
-bash scripts/set-model.sh \
-  --target worker:alice \
-  --provider deepseek \
-  --model deepseek-chat
+### Components
+
+1. **Monitor Server** (`monitor-server.sh`)
+   - Python HTTP server on port 18080
+   - Provides REST API for model management
+   - Handles Higress Console authentication
+   - Tests model connectivity before applying changes
+
+2. **Web UI** (`web/index.html`)
+   - Single-page application (vanilla JS)
+   - Pixel art theme with animations
+   - Calls monitor server API
+   - Stores backups in browser localStorage
+
+3. **CLI Scripts**
+   - `set-model.sh`: Bash wrapper for model switching
+   - `list-providers.sh`: Query Higress Console
+   - `create-provider.sh`: Create new AI provider
+   - `get-assignment.sh`: Read model assignments
+
+### Data Flow
+
+```
+Human Admin → Web UI / CLI → Monitor Server → Higress Console API
+                                    ↓
+                            MinIO (config storage)
+                                    ↓
+                            OpenClaw Config Reload
 ```
 
-### 列出供应商
+### Model Assignment Storage
 
-```bash
-bash scripts/list-providers.sh
-```
+- **Manager**: `/agents/manager/model.json` + `/root/manager-workspace/openclaw.json`
+- **Worker**: `/agents/{worker-name}/model.json` + MinIO sync
 
-### 创建供应商
-
-```bash
-bash scripts/create-provider.sh \
-  --type qwen \
-  --name qwen \
-  --token "sk-xxx"
-```
-
-### 监控服务管理
-
-```bash
-# 启动
-bash scripts/monitor-server.sh start
-
-# 停止
-bash scripts/monitor-server.sh stop
-
-# 状态
-bash scripts/monitor-server.sh status
-
-# 重启
-bash scripts/monitor-server.sh restart
-```
-
-## 📸 截图
-
-### Pixel 主题
-经典的绿色终端风格，适合极客和开发者。
-
-### Cyber 主题
-霓虹粉/青赛博朋克风格，未来感十足。
-
-### Office 主题
-温暖棕色复古办公室风格，舒适的工作氛围。
-
-## 🔧 配置
-
-### 环境变量
-
-| 变量 | 默认值 | 说明 |
-|------|--------|------|
-| `MONITOR_PORT` | 18080 | Monitor API 端口 |
-| `HICLAW_ADMIN_USER` | admin | Higress 管理员用户名 |
-| `HICLAW_ADMIN_PASSWORD` | - | Higress 管理员密码 |
-| `HICLAW_MANAGER_GATEWAY_KEY` | - | Manager Gateway Key |
-
-### 模型分配存储
-
-模型分配存储在 MinIO 中：
-
-- Manager: `/agents/manager/model.json`
-- Workers: `/agents/{worker-name}/model.json`
-
-格式示例：
-
+Format:
 ```json
 {
   "provider": "qwen",
@@ -206,35 +150,228 @@ bash scripts/monitor-server.sh restart
 }
 ```
 
-## 🏗️ 架构
+## API Reference
 
+### Monitor API Endpoints
+
+All endpoints require authentication and are prefixed with `/ni_status/`.
+
+#### GET `/ni_status/metrics`
+
+Get system metrics.
+
+Response:
+```json
+{
+  "cpu": 45,
+  "memory": 62,
+  "connections": 12,
+  "rpm": 150,
+  "timestamp": "2024-01-15T10:30:00Z"
+}
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                     Higress AI Gateway                       │
-│  ┌─────────────────────────────────────────────────────────┐│
-│  │  Route: /ni_status/* → monitor service (this skill)     ││
-│  │  Route: /v1/*         → AI Providers (LLM proxy)        ││
-│  └─────────────────────────────────────────────────────────┘│
-└─────────────────────────────────────────────────────────────┘
-                              │
-              ┌───────────────┼───────────────┐
-              ▼               ▼               ▼
-        ┌──────────┐    ┌──────────┐    ┌──────────┐
-        │ Manager  │    │ Worker 1 │    │ Worker N │
-        │ (model A)│    │ (model B)│    │ (model C)│
-        └──────────┘    └──────────┘    └──────────┘
+
+#### PUT `/ni_status/assignment/manager`
+
+Set Manager's model.
+
+Request:
+```json
+{
+  "provider": "qwen",
+  "model": "qwen3.5-plus",
+  "contextWindow": 200000,
+  "maxTokens": 64000,
+  "reasoning": true
+}
 ```
 
-## 🤝 贡献
+Response:
+```json
+{
+  "success": true,
+  "target": "manager",
+  "provider": "qwen",
+  "model": "qwen3.5-plus",
+  "routeUpdated": true
+}
+```
 
-欢迎提交 Issue 和 Pull Request！
+#### PUT `/ni_status/assignment/workers/{name}`
 
-## 📄 许可证
+Set Worker's model.
 
-Apache License 2.0
+Request: Same as Manager
+Response: Similar structure
 
-## 🔗 相关链接
+#### POST `/ni_status/test-provider`
 
-- [HiClaw](https://github.com/higress-group/hiclaw) - Agent Teams 系统
-- [Higress](https://github.com/alibaba/higress) - AI Gateway
-- [OpenClaw](https://github.com/higress-group/openclaw) - Agent 框架
+Test provider connectivity.
+
+Request:
+```json
+{
+  "provider": "qwen",
+  "model": "qwen3.5-plus"
+}
+```
+
+Response:
+```json
+{
+  "success": true,
+  "models": 150
+}
+```
+
+## How It Works
+
+### Hybrid Routing Mode
+
+The system uses **hybrid routing** to support both single-provider and multi-provider scenarios:
+
+**Single Provider Mode** (default):
+- Only one route exists: `default-ai-route`
+- All model requests go through this route
+- Switching providers updates `default-ai-route` upstream
+
+**Multi-Provider Mode** (automatic):
+- When you add a second provider, the system creates separate routes
+- Each route has `modelPredicates` to auto-route by model prefix
+- Example:
+  - `qwen-ai-route` with `modelPredicates: [{matchType: "PRE", matchValue: "qwen"}]`
+  - `minimax-ai-route` with `modelPredicates: [{matchType: "PRE", matchValue: "minimax"}]`
+  - `default-ai-route` remains as catch-all for unmatched models
+
+**How it works in practice**:
+1. First provider → uses `default-ai-route`
+2. Second provider added → creates `{provider}-ai-route` with model predicates
+3. Third+ provider → creates additional `{provider}-ai-route`
+4. Manager/Worker just specify model ID → Higress auto-routes to correct provider
+
+### Manager Model Switching Flow
+
+1. **Connectivity Test**
+   - Query Higress Console for provider API key
+   - Send test request to `POST /v1/chat/completions`
+   - Verify response (must be HTTP 200 with choices)
+
+2. **Manage Routes**
+   - Check existing AI routes
+   - If only `default-ai-route` exists → update it
+   - If multiple routes exist → create new `{provider}-ai-route` with `modelPredicates`
+
+3. **Update OpenClaw Config**
+   - Add model to `models.providers["hiclaw-gateway"].models[]` (if new)
+   - Set `agents.defaults.model.primary` to `hiclaw-gateway/{model}`
+   - Add alias to `agents.defaults.models[{model_id}]`
+
+4. **Reload**
+   - POST to `http://127.0.0.1:18799/api/reload`
+   - OpenClaw reloads config without restart
+
+### Worker Model Switching Flow
+
+1. **Store Assignment**
+   - Write to `/agents/{worker-name}/model.json`
+
+2. **Update Config** (if Worker exists)
+   - Update `/agents/{worker-name}/openclaw.json`
+   - Sync to MinIO via `mc cp`
+
+3. **Apply on Next Task**
+   - Worker pulls config from MinIO on startup/task
+   - New model takes effect immediately
+
+## Troubleshooting
+
+### Model Not Reachable
+
+**Symptom**: `set-model.sh` fails with "Model not reachable"
+
+**Causes**:
+- Provider doesn't exist in Higress Console
+- API key is invalid or expired
+- Model name is incorrect
+- Network connectivity issue
+
+**Solution**:
+1. Open Higress Console → AI Providers
+2. Verify provider exists and has valid API key
+3. Test manually: `curl -H "Authorization: Bearer <key>" http://ai-gateway.hiclaw.io:8080/v1/models`
+4. Check monitor logs: `tail -f /tmp/monitor-server.log`
+
+### OpenClaw Reload Fails
+
+**Symptom**: Model set but Manager doesn't use it
+
+**Solution**:
+1. Verify OpenClaw is running: `ps aux | grep openclaw`
+2. Manual reload: `curl -X POST http://127.0.0.1:18799/api/reload`
+3. Check config: `jq '.agents.defaults.model.primary' /root/manager-workspace/openclaw.json`
+4. Restart Manager container if needed
+
+### Worker Model Not Applied
+
+**Symptom**: Worker model set but uses old model
+
+**Solution**:
+1. Verify MinIO sync: `mc stat <bucket>/agents/<worker>/openclaw.json`
+2. Check Worker logs for config pull errors
+3. Restart Worker container
+4. Ensure Worker has correct Higress consumer permissions
+
+### Web UI Not Loading
+
+**Symptom**: Blank page or 404
+
+**Solution**:
+1. Verify Higress Manager UI route exists
+2. Check basic-auth is enabled for the route
+3. Clear browser cache and localStorage
+4. Check monitor server is running: `bash scripts/monitor-server.sh status`
+
+## Development
+
+### Testing Locally
+
+1. Start monitor server:
+   ```bash
+   export HIGRESS_COOKIE_FILE=/tmp/higress-cookie.txt
+   export HICLAW_ADMIN_USER=admin
+   export HICLAW_ADMIN_PASSWORD=admin
+   bash scripts/monitor-server.sh start
+   ```
+
+2. Test API:
+   ```bash
+   curl http://localhost:18080/ni_status/health
+   curl http://localhost:18080/ni_status/providers
+   ```
+
+3. Open web UI in browser: `http://localhost:18080`
+
+### Adding New Features
+
+1. Update `monitor-server.sh` Python code for new API endpoints
+2. Update `web/index.html` for UI changes
+3. Update `SKILL.md` and `README.md` documentation
+4. Test with `set-model.sh` and manual API calls
+
+## License
+
+MIT License
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make changes and test thoroughly
+4. Submit a pull request
+
+## Support
+
+For issues or questions:
+- Check troubleshooting section above
+- Review monitor logs: `/tmp/monitor-server.log`
+- Consult HiClaw documentation: `docs/` directory

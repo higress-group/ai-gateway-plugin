@@ -15,13 +15,24 @@ This skill provides a web-based management interface for the AI Gateway, allowin
 
 ## Web UI Access
 
-The management interface is accessible via the AI Gateway:
+The management interface is accessible via multiple ways:
 
+### 1. Manager Domain (Default)
 ```
 http://manager-local.hiclaw.io:8080
 ```
 
-Authentication: Basic Auth (admin credentials set during installation)
+### 2. Path-based Access (LAN/Internet)
+```
+http://<your-server-ip>:8080/agm/
+```
+
+This allows access from LAN or internet without configuring a domain.
+
+### Authentication
+Both access methods require Basic Auth:
+- Username: `admin` (or `HICLAW_ADMIN_USER` env var)
+- Password: Set during installation (or `HICLAW_ADMIN_PASSWORD` env var)
 
 ## Features
 
@@ -67,6 +78,16 @@ All endpoints are prefixed with `/ni_status/` and require authentication.
 | GET | `/ni_status/assignment/workers` | List all Worker model assignments |
 | GET | `/ni_status/assignment/workers/{name}` | Get Worker's model |
 | PUT | `/ni_status/assignment/workers/{name}` | Set Worker's model |
+| POST | `/ni_status/set-model` | Set model (alternative endpoint) |
+| POST | `/ni_status/test-provider` | Test provider connectivity |
+
+### Provider Management API
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/ni_status/providers` | List all AI providers |
+| POST | `/ni_status/create-provider` | Create a new provider |
+| GET | `/ni_status/route` | Get current AI routes |
 
 ## Scripts
 
@@ -106,7 +127,7 @@ bash /opt/hiclaw/agent/skills/ai-gateway-management/scripts/create-provider.sh \
 
 ### `set-model.sh`
 
-Set model for Manager or a Worker.
+Set model for Manager or a Worker. **Tests connectivity before applying**.
 
 ```bash
 # Set Manager model
@@ -120,6 +141,15 @@ bash /opt/hiclaw/agent/skills/ai-gateway-management/scripts/set-model.sh \
   --target worker:alice \
   --provider deepseek \
   --model deepseek-chat
+
+# With custom parameters
+bash /opt/hiclaw/agent/skills/ai-gateway-management/scripts/set-model.sh \
+  --target manager \
+  --provider openai \
+  --model gpt-4 \
+  --context-window 128000 \
+  --max-tokens 8192 \
+  --reasoning true
 ```
 
 ### `get-assignment.sh`
@@ -153,6 +183,7 @@ Format:
   "provider": "qwen",
   "model": "qwen3.5-plus",
   "contextWindow": 200000,
+  "maxTokens": 64000,
   "reasoning": true,
   "updatedAt": "2024-01-15T10:30:00Z"
 }
@@ -166,6 +197,7 @@ Format:
 │  ┌─────────────────────────────────────────────────────────┐│
 │  │  Route: /ni_status/* → monitor service (this skill)     ││
 │  │  Route: /v1/*         → AI Providers (LLM proxy)        ││
+│  │  Route: /           → default-ai-route (configurable)   ││
 │  └─────────────────────────────────────────────────────────┘│
 └─────────────────────────────────────────────────────────────┘
                               │
@@ -177,10 +209,74 @@ Format:
         └──────────┘    └──────────┘    └──────────┘
 ```
 
-## Notes
+## How It Works
 
-- Model changes for Manager trigger an immediate config reload
-- Model changes for Workers are persisted and applied on next task
-- Each Worker can have a different provider and model
-- The web UI provides a visual interface for all operations
-- Backups are stored in browser localStorage
+### Manager Model Switching
+
+1. **Connectivity Test**: The skill tests the model via `POST /v1/chat/completions` to ensure it's reachable
+2. **Update AI Route**: Updates `default-ai-route` to use the new provider
+3. **Update OpenClaw Config**: Modifies `openclaw.json` using the standard `hiclaw-gateway` provider format
+4. **Reload**: Triggers OpenClaw config reload via API
+
+### Worker Model Switching
+
+1. **Store Assignment**: Saves model assignment to `/agents/{worker-name}/model.json`
+2. **Update Config**: Updates Worker's `openclaw.json` in MinIO
+3. **Apply on Next Task**: Worker pulls updated config on next task assignment
+
+## Important Notes
+
+### Prerequisites
+
+Before switching models, ensure:
+- The AI Provider exists in Higress Console
+- The provider has a valid API key configured
+- The model is supported by the provider
+
+### Error Handling
+
+If model switching fails:
+1. Check Higress Console for provider configuration
+2. Verify the model name is correct
+3. Test connectivity manually via curl
+4. Check monitor server logs at `/tmp/monitor-server.log`
+
+### Default AI Route
+
+This skill uses the **default-ai-route** for all model requests. Do not create separate routes for each provider unless you need advanced routing (e.g., model-based routing with predicates).
+
+### Backup & Restore
+
+Model assignments are backed up automatically before changes:
+- Backup file: `/agents/{name}/model.json.backup.YYYYMMDD_HHMMSS`
+- Restore manually by copying backup file back
+
+## Troubleshooting
+
+### Model not reachable
+
+**Symptom**: `set-model.sh` fails with "Model not reachable" error
+
+**Solution**:
+1. Open Higress Console
+2. Navigate to AI Providers
+3. Verify provider exists and has API key
+4. Test model manually: `curl -H "Authorization: Bearer <key>" http://ai-gateway.hiclaw.io:8080/v1/models`
+
+### OpenClaw reload fails
+
+**Symptom**: Model set but Manager doesn't use it
+
+**Solution**:
+1. Check OpenClaw is running: `ps aux | grep openclaw`
+2. Manually reload: `curl -X POST http://127.0.0.1:18799/api/reload`
+3. Verify config: `jq '.agents.defaults.model.primary' /root/manager-workspace/openclaw.json`
+
+### Worker model not applied
+
+**Symptom**: Worker model set but Worker uses old model
+
+**Solution**:
+1. Verify MinIO sync: `mc stat <bucket>/agents/<worker>/openclaw.json`
+2. Restart Worker container
+3. Check Worker logs for config pull errors
