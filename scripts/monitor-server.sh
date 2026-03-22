@@ -297,7 +297,8 @@ class MonitorHandler(http.server.BaseHTTPRequestHandler):
             return
         
         routes = routes_data.get('data', routes_data) if routes_data else []
-        ai_routes = [r for r in routes if r.get('name', '').startswith('ai-route-')]
+        # Filter AI routes: exclude MCP routes and default-ai-route
+        ai_routes = [r for r in routes if r.get('name', '').endswith('-ai-route') and r.get('name') != 'default-ai-route']
         
         self.send_json({'success': True, 'routes': ai_routes})
     
@@ -339,13 +340,16 @@ class MonitorHandler(http.server.BaseHTTPRequestHandler):
             self.send_json({'success': False, 'error': 'Failed to create provider: ' + err}, 500)
             return
         
-        route_name = 'ai-route-' + provider_name
-        route_path = '/' + provider_name
+        # Use provider-specific route name format: {provider}-ai-route
+        route_name = provider_name + '-ai-route'
+        
+        # Use configured AI Gateway domain
+        ai_gateway_domain = os.environ.get('HICLAW_AI_GATEWAY_DOMAIN', 'aigw-local.hiclaw.io')
         
         new_route = {
             'name': route_name,
-            'domains': ['ai-gateway.hiclaw.io'],
-            'pathPredicate': {'matchType': 'PRE', 'matchValue': route_path, 'caseSensitive': False},
+            'domains': [ai_gateway_domain],
+            'pathPredicate': {'matchType': 'PRE', 'matchValue': '/', 'caseSensitive': False},
             'authConfig': {'enabled': True, 'allowedCredentialTypes': ['key-auth'], 'allowedConsumers': ['manager']},
             'upstreams': [{'provider': provider_name, 'weight': 100, 'modelMapping': {}}]
         }
@@ -353,7 +357,7 @@ class MonitorHandler(http.server.BaseHTTPRequestHandler):
         route_result, route_err = higress_api('PUT', '/v1/ai/routes/' + route_name, new_route)
         print('[DEBUG] create_provider: PUT route result: err=' + str(route_err) + ', result=' + str(route_result)[:200] if route_result else 'None')
         
-        self.send_json({'success': True, 'provider': provider_name, 'routePath': route_path, 'routeUpdated': True})
+        self.send_json({'success': True, 'provider': provider_name, 'routeName': route_name, 'routeUpdated': True})
     
     def test_provider(self, data):
         provider_name = data.get('provider')

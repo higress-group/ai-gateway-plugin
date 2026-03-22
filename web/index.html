@@ -1093,7 +1093,10 @@
                 const routesRes = await apiCall('GET', '/v1/ai/routes');
                 const routesData = await routesRes.json();
                 const allRoutes = routesData.data || routesData || [];
-                const aiRoutes = allRoutes.filter(function(r) { return r.name && r.name.startsWith('ai-route-'); });
+                // Filter AI routes: exclude MCP routes and default-ai-route
+                const aiRoutes = allRoutes.filter(function(r) {
+                    return r.name && r.name.endsWith('-ai-route') && r.name !== 'default-ai-route';
+                });
                 
                 var routesInfo = aiRoutes.map(function(r) {
                     var provider = r.upstreams && r.upstreams[0] ? r.upstreams[0].provider : 'unknown';
@@ -1301,7 +1304,10 @@
                 if (routesRes.ok) {
                     const routesData = await routesRes.json();
                     const allRoutes = routesData.data || routesData || [];
-                    const aiRoutes = allRoutes.filter(function(r) { return r.name && r.name.startsWith('ai-route-'); });
+                    // Filter AI routes: exclude MCP routes and default-ai-route
+                    const aiRoutes = allRoutes.filter(function(r) {
+                        return r.name && r.name.endsWith('-ai-route') && r.name !== 'default-ai-route';
+                    });
                     if (aiRoutes.length > 0) {
                         document.getElementById('status-manager').textContent = 'ONLINE (' + aiRoutes.length + ' routes)';
                         document.getElementById('status-manager').className = 'status-value status-online';
