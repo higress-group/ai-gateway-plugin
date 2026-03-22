@@ -997,7 +997,29 @@
             }
             
             if (response.ok || response.status === 409) {
-                showToast(editMode === 'edit' ? 'PROVIDER UPDATED' : 'PROVIDER CREATED', 'success');
+                // 如果是新创建的 Provider，提示用户设置模型来创建路由
+                if (editMode !== 'edit') {
+                    // 延迟显示提示，让用户先看到创建成功的消息
+                    setTimeout(() => {
+                        if (confirm('PROVIDER CREATED!\n\n点击 OK 为此 Provider 设置默认模型并创建路由\n点击 Cancel 稍后手动设置')) {
+                            showSetModelModal('manager');
+                            // 自动选中新创建的 Provider
+                            setTimeout(() => {
+                                const select = document.getElementById('model-provider');
+                                if (select) {
+                                    select.value = name;
+                                    // 触发 change 事件以加载模型列表
+                                    select.dispatchEvent(new Event('change'));
+                                }
+                            }, 300);
+                        } else {
+                            showToast('YOU CAN SET MODEL LATER FROM PROVIDERS TAB', 'info');
+                        }
+                    }, 500);
+                } else {
+                    showToast(editMode === 'edit' ? 'PROVIDER UPDATED' : 'PROVIDER CREATED', 'success');
+                }
+                
                 closeModal('provider-modal');
                 refreshProviders();
             } else {
