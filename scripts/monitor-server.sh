@@ -719,6 +719,11 @@ class MonitorHandler(http.server.BaseHTTPRequestHandler):
                     subprocess.run(['curl', '-s', '-X', 'POST', 'http://127.0.0.1:18799/api/reload'], check=False, timeout=5)
                     print('[DEBUG] OpenClaw config reloaded')
                     
+                    # IMPORTANT: Log a warning about container restart
+                    print('[WARNING] Model set successfully!')
+                    print('[WARNING] Note: If the container restarts, HICLAW_DEFAULT_MODEL environment variable may override this setting.')
+                    print('[WARNING] To make this permanent, update HICLAW_DEFAULT_MODEL in your deployment configuration.')
+                    
                 except Exception as e:
                     errors.append('Failed to update OpenClaw config: ' + str(e))
             else:
