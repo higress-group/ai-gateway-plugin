@@ -644,11 +644,13 @@ class MonitorHandler(http.server.BaseHTTPRequestHandler):
                     gateway_provider_name = 'hiclaw-gateway'
                     
                     # Use configured AI Gateway domain
-                    # IMPORTANT: baseUrl should NOT include provider path
-                    # OpenClaw will append the model name to the URL
-                    # Format: http://{domain}:8080/v1
+                    # IMPORTANT: Model ID must include provider prefix for Higress routing
+                    # Format: {provider}/{model-name} (e.g., "ark/doubao-pro-32k")
+                    # baseUrl: http://{domain}:8080
+                    # OpenClaw will construct: POST /{provider}/v1/chat/completions
+                    # Example: POST /ark/v1/chat/completions
                     ai_gateway_domain = os.environ.get('HICLAW_AI_GATEWAY_DOMAIN', 'aigw-local.hiclaw.io')
-                    gateway_base_url = 'http://' + ai_gateway_domain + ':8080/v1'
+                    gateway_base_url = 'http://' + ai_gateway_domain + ':8080'
                     
                     # Ensure models.providers structure exists
                     if 'models' not in config:
@@ -664,12 +666,17 @@ class MonitorHandler(http.server.BaseHTTPRequestHandler):
                         }
                     
                     models_list = config['models']['providers'][gateway_provider_name].get('models', [])
-                    model_exists = any(m.get('id') == model for m in models_list)
+                    
+                    # IMPORTANT: Model ID must include provider prefix for Higress routing
+                    # Format: {provider}/{model-name} (e.g., "ark/doubao-pro-32k")
+                    # This allows OpenClaw to construct correct URL: POST /{provider}/v1/chat/completions
+                    full_model_id = provider + '/' + model
+                    model_exists = any(m.get('id') == full_model_id for m in models_list)
                     
                     if not model_exists:
-                        # Add new model to the list
+                        # Add new model to the list with provider prefix
                         models_list.append({
-                            'id': model,
+                            'id': full_model_id,
                             'name': model,
                             'reasoning': reasoning,
                             'contextWindow': context_window,
@@ -677,11 +684,11 @@ class MonitorHandler(http.server.BaseHTTPRequestHandler):
                             'input': ['text', 'image'] if reasoning else ['text']
                         })
                         config['models']['providers'][gateway_provider_name]['models'] = models_list
-                        print('[DEBUG] Added new model to openclaw.json: ' + model)
+                        print('[DEBUG] Added new model to openclaw.json: ' + full_model_id)
                         print('[DEBUG]   baseUrl: ' + gateway_base_url)
                     
-                    # Set as primary model
-                    model_id = gateway_provider_name + '/' + model
+                    # Set as primary model (with provider prefix)
+                    model_id = gateway_provider_name + '/' + full_model_id
                     
                     if 'agents' not in config:
                         config['agents'] = {'defaults': {}}
