@@ -635,6 +635,10 @@ class MonitorHandler(http.server.BaseHTTPRequestHandler):
                     # Use standard hiclaw-gateway provider format
                     gateway_provider_name = 'hiclaw-gateway'
                     
+                    # Use configured AI Gateway domain
+                    ai_gateway_domain = os.environ.get('HICLAW_AI_GATEWAY_DOMAIN', 'aigw-local.hiclaw.io')
+                    gateway_base_url = 'http://' + ai_gateway_domain + ':8080/v1'
+                    
                     # Ensure models.providers structure exists
                     if 'models' not in config:
                         config['models'] = {'mode': 'merge', 'providers': {}}
@@ -642,7 +646,7 @@ class MonitorHandler(http.server.BaseHTTPRequestHandler):
                         config['models']['providers'] = {}
                     if gateway_provider_name not in config['models']['providers']:
                         config['models']['providers'][gateway_provider_name] = {
-                            'baseUrl': 'http://ai-gateway.hiclaw.io:8080/v1',
+                            'baseUrl': gateway_base_url,
                             'apiKey': os.environ.get('MANAGER_GATEWAY_KEY') or os.environ.get('HICLAW_MANAGER_GATEWAY_KEY', ''),
                             'api': 'openai-completions',
                             'models': []
@@ -663,6 +667,7 @@ class MonitorHandler(http.server.BaseHTTPRequestHandler):
                         })
                         config['models']['providers'][gateway_provider_name]['models'] = models_list
                         print('[DEBUG] Added new model to openclaw.json: ' + model)
+                        print('[DEBUG]   baseUrl: ' + gateway_base_url)
                     
                     # Set as primary model
                     model_id = gateway_provider_name + '/' + model
