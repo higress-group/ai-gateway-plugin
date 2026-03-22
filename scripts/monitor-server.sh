@@ -644,6 +644,9 @@ class MonitorHandler(http.server.BaseHTTPRequestHandler):
                     gateway_provider_name = 'hiclaw-gateway'
                     
                     # Use configured AI Gateway domain
+                    # IMPORTANT: baseUrl should NOT include provider path
+                    # OpenClaw will append the model name to the URL
+                    # Format: http://{domain}:8080/v1
                     ai_gateway_domain = os.environ.get('HICLAW_AI_GATEWAY_DOMAIN', 'aigw-local.hiclaw.io')
                     gateway_base_url = 'http://' + ai_gateway_domain + ':8080/v1'
                     
@@ -805,11 +808,14 @@ class MonitorHandler(http.server.BaseHTTPRequestHandler):
         """Test if a model is reachable via the AI Gateway"""
         # Use the configured AI Gateway domain (default: aigw-local.hiclaw.io)
         ai_gateway_domain = os.environ.get('HICLAW_AI_GATEWAY_DOMAIN', 'aigw-local.hiclaw.io')
-        test_url = 'http://' + ai_gateway_domain + ':8080/v1/chat/completions'
+        
+        # IMPORTANT: URL must include Provider path!
+        # Format: http://{domain}:8080/{provider}/v1/chat/completions
+        # Example: http://aigw-local.hiclaw.io:8080/ark/v1/chat/completions
+        test_url = 'http://' + ai_gateway_domain + ':8080/' + provider + '/v1/chat/completions'
         
         # Use Manager consumer's gateway key for authentication
         # The AI Gateway route requires key-auth with consumer 'manager'
-        # This is different from Higress Console admin credentials
         gateway_key = os.environ.get('MANAGER_GATEWAY_KEY') or os.environ.get('HICLAW_MANAGER_GATEWAY_KEY', '')
         
         print('[DEBUG] Testing model connectivity via AI Gateway:')
@@ -817,9 +823,6 @@ class MonitorHandler(http.server.BaseHTTPRequestHandler):
         print('[DEBUG]   Model: ' + model)
         print('[DEBUG]   URL: ' + test_url)
         print('[DEBUG]   Domain: ' + ai_gateway_domain)
-        print('[DEBUG]   MANAGER_GATEWAY_KEY env: ' + ('set' if os.environ.get('MANAGER_GATEWAY_KEY') else 'not set'))
-        print('[DEBUG]   HICLAW_MANAGER_GATEWAY_KEY env: ' + ('set' if os.environ.get('HICLAW_MANAGER_GATEWAY_KEY') else 'not set'))
-        print('[DEBUG]   gateway_key length: ' + str(len(gateway_key)))
         
         if not gateway_key:
             print('[WARNING] Gateway key not available, skipping connectivity test')

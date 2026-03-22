@@ -78,7 +78,9 @@ if [ "${ENTITY_TYPE}" = "manager" ]; then
     fi
     
     # Test the model
-    test_resp=$(curl -s -X POST "http://ai-gateway.hiclaw.io:8080/v1/chat/completions" \
+    # IMPORTANT: URL must include Provider path!
+    # Format: http://{domain}/{provider}/v1/chat/completions
+    test_resp=$(curl -s -X POST "http://${AI_GATEWAY_DOMAIN}/${PROVIDER}/v1/chat/completions" \
         -H "Content-Type: application/json" \
         -H "Authorization: Bearer ${api_key}" \
         -d "{\"model\":\"${MODEL}\",\"messages\":[{\"role\":\"user\",\"content\":\"Hello\"}],\"max_tokens\":1}" \
