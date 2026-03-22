@@ -604,25 +604,26 @@ class MonitorHandler(http.server.BaseHTTPRequestHandler):
         route_updated = False
         
         if target == 'manager':
-            # Test model connectivity first
-            print('[DEBUG] Testing model connectivity before applying...')
-            test_result = self.test_model_connectivity(provider, model)
-            if not test_result.get('success', False):
-                self.send_json({
-                    'success': False, 
-                    'error': 'Model not reachable: ' + str(test_result.get('error', 'Unknown error')),
-                    'hint': 'Ask admin to create AI Provider in Higress Console first'
-                })
-                return
-            
-            # Manage AI routes with hybrid mode
-            print('[DEBUG] Managing AI routes...')
+            # Manage AI routes FIRST (before testing connectivity)
+            # This ensures the route exists for the connectivity test
+            print('[DEBUG] Managing AI routes before testing connectivity...')
             route_success, route_error = self.manage_ai_routes(provider, model)
             if not route_success:
                 errors.append(route_error)
             else:
                 route_updated = True
                 print('[DEBUG] AI routes managed successfully')
+            
+            # Test model connectivity after route is set up
+            print('[DEBUG] Testing model connectivity...')
+            test_result = self.test_model_connectivity(provider, model)
+            if not test_result.get('success', False):
+                self.send_json({
+                    'success': False, 
+                    'error': 'Model not reachable: ' + str(test_result.get('error', 'Unknown error')),
+                    'hint': 'Check if the Provider is correctly configured in Higress Console'
+                })
+                return
             
             # Update OpenClaw config using the standard format
             if os.path.exists(OPENCLAW_CONFIG):
