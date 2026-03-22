@@ -551,25 +551,33 @@ class MonitorHandler(http.server.BaseHTTPRequestHandler):
         return True, None
     
     def create_provider_route(self, provider, model):
-        """Create a new AI route for a specific provider with modelPredicates"""
+        """Create a new AI route for a specific provider
+        
+        IMPORTANT: Higress uses path-based routing, not modelPredicates.
+        The route matches all paths and forwards to the provider.
+        OpenClaw constructs URLs like: /{provider}/v1/chat/completions
+        Higress will route based on the path prefix.
+        """
         ai_gateway_domain = os.environ.get('HICLAW_AI_GATEWAY_DOMAIN', 'aigw-local.hiclaw.io')
         hiclaw_version = os.environ.get('HICLAW_VERSION', 'latest')
         
         route_name = provider + '-ai-route'
         
-        # Use model prefix as predicate
-        model_prefix = provider
-        
         print('[DEBUG] Creating provider route: ' + route_name)
         print('[DEBUG]   Domain: ' + ai_gateway_domain)
-        print('[DEBUG]   Model Predicate: ' + model_prefix)
+        print('[DEBUG]   Provider: ' + provider)
         
+        # Route configuration:
+        # - pathPredicate: / (matches all paths)
+        # - No modelPredicates (we use path-based routing)
+        # - OpenClaw will call: POST /{provider}/v1/chat/completions
+        # - Higress will forward to the provider based on path
         route_body = {
             'name': route_name,
             'domains': [ai_gateway_domain],
             'pathPredicate': {'matchType': 'PRE', 'matchValue': '/', 'caseSensitive': False},
             'upstreams': [{'provider': provider, 'weight': 100, 'modelMapping': {}}],
-            'modelPredicates': [{'matchType': 'PRE', 'matchValue': model_prefix}],
+            # NO modelPredicates - we use path-based routing
             'authConfig': {
                 'enabled': True,
                 'allowedCredentialTypes': ['key-auth'],
