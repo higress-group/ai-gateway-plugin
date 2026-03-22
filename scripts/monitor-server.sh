@@ -426,9 +426,10 @@ class MonitorHandler(http.server.BaseHTTPRequestHandler):
     
     def manage_ai_routes(self, provider, model):
         """
-        Manage AI routes with hybrid mode:
-        - Single provider: use default-ai-route
-        - Multiple providers: create separate routes with modelPredicates
+        Manage AI routes with dedicated route per provider:
+        - Each provider gets its own route (e.g., qwen-ai-route, alibaba-ai-route)
+        - Routes use modelPredicates to distinguish traffic
+        - No default-ai-route modification
         
         Returns: (success, error_message)
         """
@@ -448,31 +449,19 @@ class MonitorHandler(http.server.BaseHTTPRequestHandler):
         else:
             routes_list = [routes_data] if routes_data else []
         
-        # Filter AI routes (exclude MCP routes)
-        ai_routes = [r for r in routes_list if r.get('name', '').endswith('-ai-route')]
+        # Filter AI routes (exclude MCP routes and default-ai-route)
+        ai_routes = [r for r in routes_list if r.get('name', '').endswith('-ai-route') and r.get('name') != 'default-ai-route']
         
-        print('[DEBUG] Found ' + str(len(ai_routes)) + ' AI routes')
+        print('[DEBUG] Found ' + str(len(ai_routes)) + ' provider-specific AI route(s)')
         
-        # Check if we need hybrid mode (multiple providers in use)
-        existing_providers = set()
-        for route in ai_routes:
-            if 'upstreams' in route and len(route['upstreams']) > 0:
-                existing_providers.add(route['upstreams'][0].get('provider', ''))
-        
-        print('[DEBUG] Existing providers: ' + str(existing_providers))
-        
-        # If this provider already has a route, just use it
+        # Check if this provider already has a route
         for route in ai_routes:
             if route.get('upstreams', [{}])[0].get('provider') == provider:
                 print('[DEBUG] Route for provider ' + provider + ' already exists: ' + route.get('name'))
                 return True, None  # Route exists, no action needed
         
-        # If no routes exist or only default exists, stay in single-route mode
-        if len(ai_routes) <= 1:
-            # Update or create default-ai-route
-            return self.update_default_route(provider)
-        
-        # Multiple routes exist - need to create a new route for this provider
+        # Always create a dedicated route for each provider
+        print('[DEBUG] Creating dedicated route for provider: ' + provider)
         return self.create_provider_route(provider, model)
     
     def update_default_route(self, provider):
