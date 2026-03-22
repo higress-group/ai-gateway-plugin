@@ -28,6 +28,10 @@ start_server() {
     export HICLAW_ADMIN_USER="${HICLAW_ADMIN_USER:-admin}"
     export HICLAW_ADMIN_PASSWORD="${HICLAW_ADMIN_PASSWORD:-admin}"
     export MANAGER_GATEWAY_KEY="${HICLAW_MANAGER_GATEWAY_KEY:-}"
+    export HICLAW_MANAGER_GATEWAY_KEY="${HICLAW_MANAGER_GATEWAY_KEY:-}"
+    
+    log "MANAGER_GATEWAY_KEY length: ${#MANAGER_GATEWAY_KEY}"
+    log "HICLAW_MANAGER_GATEWAY_KEY length: ${#HICLAW_MANAGER_GATEWAY_KEY}"
     
     python3 - << 'EOF' >> "${LOG_FILE}" 2>&1 &
 import http.server
@@ -807,6 +811,11 @@ class MonitorHandler(http.server.BaseHTTPRequestHandler):
         # The route requires key-auth with consumer 'manager'
         gateway_key = os.environ.get('MANAGER_GATEWAY_KEY') or os.environ.get('HICLAW_MANAGER_GATEWAY_KEY', '')
         
+        print('[DEBUG] Environment variables:')
+        print('[DEBUG]   MANAGER_GATEWAY_KEY length: ' + str(len(os.environ.get('MANAGER_GATEWAY_KEY', ''))))
+        print('[DEBUG]   HICLAW_MANAGER_GATEWAY_KEY length: ' + str(len(os.environ.get('HICLAW_MANAGER_GATEWAY_KEY', ''))))
+        print('[DEBUG]   gateway_key length: ' + str(len(gateway_key)))
+        
         if not gateway_key:
             print('[WARNING] HICLAW_MANAGER_GATEWAY_KEY not set, skipping gateway test')
             # If no gateway key, assume success since route creation succeeded
@@ -817,7 +826,7 @@ class MonitorHandler(http.server.BaseHTTPRequestHandler):
         print('[DEBUG]   Model: ' + model)
         print('[DEBUG]   URL: ' + test_url)
         print('[DEBUG]   Domain: ' + ai_gateway_domain)
-        print('[DEBUG]   Auth: Manager Gateway Key (not LLM API key)')
+        print('[DEBUG]   Auth: Manager Gateway Key (length=' + str(len(gateway_key)) + ')')
         
         # Test through Higress Gateway using Manager consumer key
         test_body = {
