@@ -453,6 +453,8 @@ class MonitorHandler(http.server.BaseHTTPRequestHandler):
         ai_routes = [r for r in routes_list if r.get('name', '').endswith('-ai-route') and r.get('name') != 'default-ai-route']
         
         print('[DEBUG] Found ' + str(len(ai_routes)) + ' provider-specific AI route(s)')
+        for r in ai_routes:
+            print('[DEBUG]   - Route: ' + r.get('name') + ', provider: ' + str(r.get('upstreams', [{}])[0].get('provider')))
         
         # Check if this provider already has a route
         for route in ai_routes:
@@ -461,8 +463,10 @@ class MonitorHandler(http.server.BaseHTTPRequestHandler):
                 return True, None  # Route exists, no action needed
         
         # Always create a dedicated route for each provider
-        print('[DEBUG] Creating dedicated route for provider: ' + provider)
-        return self.create_provider_route(provider, model)
+        print('[DEBUG] No existing route for provider: ' + provider + ', creating new route...')
+        result = self.create_provider_route(provider, model)
+        print('[DEBUG] Route creation result: ' + str(result))
+        return result
     
     def update_default_route(self, provider):
         """Update default-ai-route to use the specified provider"""
@@ -548,6 +552,10 @@ class MonitorHandler(http.server.BaseHTTPRequestHandler):
         # Use model prefix as predicate
         model_prefix = provider
         
+        print('[DEBUG] Creating provider route: ' + route_name)
+        print('[DEBUG]   Domain: ' + ai_gateway_domain)
+        print('[DEBUG]   Model Predicate: ' + model_prefix)
+        
         route_body = {
             'name': route_name,
             'domains': [ai_gateway_domain],
@@ -570,11 +578,15 @@ class MonitorHandler(http.server.BaseHTTPRequestHandler):
             }
         }
         
+        print('[DEBUG] Sending POST /v1/ai/routes with body: ' + json.dumps(route_body, indent=2)[:500])
+        
         result, err = higress_api('POST', '/v1/ai/routes', route_body)
         if err:
+            print('[ERROR] Failed to create provider route: ' + err)
             return False, 'Failed to create provider route: ' + str(err)
         
-        print('[DEBUG] Provider route created: ' + route_name + ' with modelPredicate: ' + model_prefix)
+        print('[DEBUG] Provider route created successfully: ' + route_name)
+        print('[DEBUG] Route creation result: ' + str(result)[:200])
         return True, None
     
     def set_model(self, data):

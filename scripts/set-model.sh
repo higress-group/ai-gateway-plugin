@@ -98,22 +98,22 @@ if [ "${ENTITY_TYPE}" = "manager" ]; then
     
     log "Model connectivity test passed"
     
-    # Manage AI routes with hybrid mode
-    log "Managing AI routes (hybrid mode)..."
+    # Manage AI routes - create dedicated route for each provider
+    log "Managing AI routes (dedicated route per provider)..."
     
-    # Get all existing AI routes
+    # Get all existing AI routes (exclude default-ai-route)
     routes_resp=$(curl -s -X GET "${CONSOLE_URL}/v1/ai/routes" \
         -b "${HIGRESS_COOKIE_FILE}" 2>/dev/null)
     
-    # Parse routes from response
+    # Parse routes - only provider-specific routes, exclude default-ai-route
     ai_routes=$(echo "${routes_resp}" | jq -r '
         (.data.items // .data // []) | 
         if type == "array" then . else [] end |
-        map(select(.name | endswith("-ai-route")))
+        map(select(.name | endswith("-ai-route")) | select(.name != "default-ai-route"))
     ' 2>/dev/null)
     
     route_count=$(echo "${ai_routes}" | jq 'length' 2>/dev/null)
-    log "Found ${route_count} AI route(s)"
+    log "Found ${route_count} provider-specific AI route(s)"
     
     # Check if provider already has a route
     existing_route=$(echo "${ai_routes}" | jq -r --arg provider "${PROVIDER}" '
@@ -124,50 +124,13 @@ if [ "${ENTITY_TYPE}" = "manager" ]; then
         log "Provider '${PROVIDER}' already has route: ${existing_route}"
         log "Skipping route creation"
     else
-        # Determine if we need hybrid mode
-        if [ "${route_count:-0}" -le 1 ]; then
-            # Single route mode - update default-ai-route
-            log "Single route mode: updating default-ai-route"
-            
-            # Get current default route
-            default_route=$(curl -s -X GET "${CONSOLE_URL}/v1/ai/routes/default-ai-route" \
-                -b "${HIGRESS_COOKIE_FILE}" 2>/dev/null)
-            
-            if [ -z "$(echo "${default_route}" | jq -r '.data' 2>/dev/null)" ]; then
-                log "Default route not found, creating..."
-                # Create default route (would need full implementation)
-                log "WARNING: Default route creation skipped - use Web UI or API"
-            else
-                log "Updating default-ai-route to use provider: ${PROVIDER}"
-                # Update provider in upstreams[0]
-                patched=$(echo "${default_route}" | jq --arg provider "${PROVIDER}" '
-                    .data | 
-                    del(.modelPredicates) |
-                    .upstreams[0].provider = $provider
-                ' 2>/dev/null)
-                
-                if [ -n "${patched}" ] && [ "${patched}" != "null" ]; then
-                    update_resp=$(curl -s -o /dev/null -w '%{http_code}' -X PUT \
-                        "${CONSOLE_URL}/v1/ai/routes/default-ai-route" \
-                        -b "${HIGRESS_COOKIE_FILE}" \
-                        -H 'Content-Type: application/json' \
-                        -d "${patched}" 2>/dev/null)
-                    
-                    if [ "${update_resp}" = "200" ]; then
-                        log "SUCCESS: default-ai-route updated"
-                    else
-                        log "WARNING: Route update failed (HTTP ${update_resp})"
-                    fi
-                fi
-            fi
-        else
-            # Multi-route mode - create provider-specific route
-            log "Multi-route mode: creating ${PROVIDER}-ai-route"
-            
-            AI_GATEWAY_DOMAIN="${HICLAW_AI_GATEWAY_DOMAIN:-aigw-local.hiclaw.io}"
-            HICLAW_VERSION="${HICLAW_VERSION:-latest}"
-            
-            route_body=$(cat <<EOF
+        # Always create a dedicated route for each provider
+        log "Creating dedicated route for provider: ${PROVIDER}"
+        
+        AI_GATEWAY_DOMAIN="${HICLAW_AI_GATEWAY_DOMAIN:-aigw-local.hiclaw.io}"
+        HICLAW_VERSION="${HICLAW_VERSION:-latest}"
+        
+        route_body=$(cat <<EOF
 {
   "name": "${PROVIDER}-ai-route",
   "domains": ["${AI_GATEWAY_DOMAIN}"],
@@ -191,17 +154,18 @@ if [ "${ENTITY_TYPE}" = "manager" ]; then
 }
 EOF
 )
-            create_resp=$(curl -s -o /dev/null -w '%{http_code}' -X POST \
-                "${CONSOLE_URL}/v1/ai/routes" \
-                -b "${HIGRESS_COOKIE_FILE}" \
-                -H 'Content-Type: application/json' \
-                -d "${route_body}" 2>/dev/null)
-            
-            if [ "${create_resp}" = "200" ] || [ "${create_resp}" = "201" ]; then
-                log "SUCCESS: Created ${PROVIDER}-ai-route with modelPredicate"
-            else
-                log "WARNING: Route creation failed (HTTP ${create_resp})"
-            fi
+        log "Creating route: ${PROVIDER}-ai-route"
+        
+        create_resp=$(curl -s -o /dev/null -w '%{http_code}' -X POST \
+            "${CONSOLE_URL}/v1/ai/routes" \
+            -b "${HIGRESS_COOKIE_FILE}" \
+            -H 'Content-Type: application/json' \
+            -d "${route_body}" 2>/dev/null)
+        
+        if [ "${create_resp}" = "200" ] || [ "${create_resp}" = "201" ]; then
+            log "SUCCESS: Created ${PROVIDER}-ai-route with modelPredicate"
+        else
+            log "WARNING: Route creation failed (HTTP ${create_resp})"
         fi
     fi
 fi
