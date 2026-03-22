@@ -811,8 +811,16 @@ class MonitorHandler(http.server.BaseHTTPRequestHandler):
         
         api_key = tokens[0] if isinstance(tokens[0], str) else (tokens[0].get('value', '') if isinstance(tokens[0], dict) else '')
         
-        # Test the model with a simple chat completions request
-        test_url = 'http://ai-gateway.hiclaw.io:8080/v1/chat/completions'
+        # Use the configured AI Gateway domain (default: aigw-local.hiclaw.io)
+        ai_gateway_domain = os.environ.get('HICLAW_AI_GATEWAY_DOMAIN', 'aigw-local.hiclaw.io')
+        test_url = 'http://' + ai_gateway_domain + ':8080/v1/chat/completions'
+        
+        print('[DEBUG] Testing model connectivity:')
+        print('[DEBUG]   Provider: ' + provider)
+        print('[DEBUG]   Model: ' + model)
+        print('[DEBUG]   URL: ' + test_url)
+        print('[DEBUG]   Domain: ' + ai_gateway_domain)
+        
         test_body = {
             'model': model,
             'messages': [{'role': 'user', 'content': 'Hello'}],
@@ -820,14 +828,26 @@ class MonitorHandler(http.server.BaseHTTPRequestHandler):
         }
         
         cmd = 'curl -s -m 10 -X POST "' + test_url + '" -H "Content-Type: application/json" -H "Authorization: Bearer ' + api_key + '" -d \'' + json.dumps(test_body) + '\''
-        print('[DEBUG] Testing model: ' + cmd[:200])
+        print('[DEBUG] curl command: ' + cmd[:300])
         result, err = run_cmd(cmd)
         
+        print('[DEBUG] curl result:')
+        if result:
+            print('[DEBUG]   Response: ' + result[:200])
+        else:
+            print('[DEBUG]   Response: (empty)')
         if err:
-            return {'success': False, 'error': 'Connection failed: ' + err}
+            print('[DEBUG]   Error: ' + str(err))
+        
+        if err:
+            return {'success': False, 'error': 'Connection failed: ' + str(err)}
         
         if not result:
-            return {'success': False, 'error': 'Empty response'}
+            # Try to get more info about why it failed
+            # Check if the domain resolves
+            resolve_check, _ = run_cmd('curl -s -m 5 -I "http://' + ai_gateway_domain + ':8080/" 2>&1 | head -n1')
+            print('[DEBUG] Domain check: ' + str(resolve_check))
+            return {'success': False, 'error': 'Empty response. Domain check: ' + str(resolve_check)}
         
         try:
             response = json.loads(result)
